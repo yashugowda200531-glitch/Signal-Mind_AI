@@ -31,17 +31,15 @@ export default function FFTChart() {
   const chartData = useMemo(() => {
     if (!data?.fft || data.fft.length === 0) return [];
     
-    const maxFFT = Math.max(...data.fft) || 1;
-    const maxPts = 500;
+    const maxPts = 300;
     const step = Math.max(1, Math.floor(data.fft.length / maxPts));
     const nyquist = data.sampleRate / 2;
     const freqStep = nyquist / data.fft.length;
     
     const pts = [];
     for (let i = 0; i < data.fft.length; i += step) {
-      const mag = data.fft[i] / maxFFT;
-      const db = +(20 * Math.log10(mag + 1e-12)).toFixed(1);
-      pts.push({ freq: +((i * freqStep) / 1000).toFixed(2), magnitude: db });
+      const db = data.fft[i];
+      pts.push({ freq: +((i * freqStep) / 1000).toFixed(2), magnitude: +db.toFixed(1) });
     }
     return pts;
   }, [data?.fft, data?.sampleRate]);
@@ -126,8 +124,8 @@ export default function FFTChart() {
                 <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.1} />
               </linearGradient>
               <filter id="purpleGlow" x="-20%" y="-50%" width="140%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b1" />
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1" result="b2" />
+                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b1" />
+                <feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="b2" />
                 <feMerge>
                   <feMergeNode in="b1" />
                   <feMergeNode in="b2" />
@@ -152,7 +150,7 @@ export default function FFTChart() {
             />
             <Tooltip content={<Tip />} cursor={{ stroke: "rgba(168,85,247,0.2)", strokeWidth: 1 }} />
             <Area
-              type="step"
+              type="basis"
               dataKey="magnitude"
               stroke="#d946ef"
               strokeWidth={1.5}

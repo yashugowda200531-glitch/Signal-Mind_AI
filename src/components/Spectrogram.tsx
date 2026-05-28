@@ -71,15 +71,15 @@ export default function Spectrogram() {
 
         if (data && data.fft && data.fft.length > 0) {
           const fftIndex = Math.floor(freqRatio * data.fft.length);
-          const rawMag = data.fft[fftIndex] || 0;
+          const rawMag = data.fft[fftIndex] || -100;
+          // data.fft is now in dBFS [-100, 0]
+          // Improve contrast: ignore bottom -80 to -100
+          let scaled = (rawMag + 80) / 80;
+          scaled = Math.pow(Math.max(0, scaled), 1.5);
           
-          let scaled = rawMag / maxFFT;
-          if (scaled > 1) scaled = 1;
-          if (scaled < 0) scaled = 0;
-          
-          power = scaled * 0.85 + Math.random() * 0.05;
-          if (Math.abs(freqRatio - (data.dominantFreq / (data.sampleRate/2000))) < 0.05) {
-             power += 0.15 * Math.sin(tOffset * 0.1);
+          power = Math.min(1, scaled + Math.random() * 0.03);
+          if (Math.abs(freqRatio - (data.dominantFreq / (data.sampleRate/2000))) < 0.02) {
+             power = Math.min(1, power + 0.1);
           }
         } else {
           // Idle state noise

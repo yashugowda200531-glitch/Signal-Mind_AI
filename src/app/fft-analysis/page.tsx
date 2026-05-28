@@ -84,15 +84,12 @@ function FFTSpectrumPanel() {
 
   const allPts = useMemo(() => {
     if (!data?.fft?.length) return [];
-    const maxFFT = Math.max(...data.fft) || 1;
     const nyquist = data.sampleRate / 2;
     const freqStep = nyquist / data.fft.length;
     const step = Math.max(1, Math.floor(data.fft.length / MAX_PTS));
     const pts: { freq: number; magnitude: number }[] = [];
     for (let i = 0; i < data.fft.length; i += step) {
-      const mag = data.fft[i] / maxFFT;
-      const db = +(20 * Math.log10(mag + 1e-12)).toFixed(1);
-      pts.push({ freq: +((i * freqStep) / 1000).toFixed(3), magnitude: db });
+      pts.push({ freq: +((i * freqStep) / 1000).toFixed(3), magnitude: +data.fft[i].toFixed(1) });
     }
     return pts;
   }, [data]);
@@ -114,10 +111,10 @@ function FFTSpectrumPanel() {
       <div style={{ background: "rgba(3,5,16,0.98)", border: "1px solid rgba(168,85,247,0.3)",
         borderRadius: 6, padding: "5px 10px" }}>
         <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 11, color: "#d8b4fe" }}>
-          {payload[0]?.payload?.freq} kHz
+          {payload[0]?.payload?.freq?.toFixed(3) ?? 0} kHz
         </div>
         <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 11, color: "#e2e8f0" }}>
-          {payload[0]?.value?.toFixed(1)} dB
+          {payload[0]?.value?.toFixed(2) ?? 0} dB
         </div>
       </div>
     ) : null;
@@ -208,7 +205,7 @@ function FFTSpectrumPanel() {
                     label={{ value: `${data.dominantFreq.toFixed(2)} kHz`, fill: "#00e5ff", fontSize: 9, position: "top" }} />
                 </>
               )}
-              <Area type="step" dataKey="magnitude" stroke="#d946ef" strokeWidth={1.5}
+              <Area type="monotone" dataKey="magnitude" stroke="#d946ef" strokeWidth={1.5}
                 fill="url(#fftGradFull)" fillOpacity={1} isAnimationActive={false} filter="url(#fftGlowFull)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -223,33 +220,16 @@ function PeakTable() {
   const { data } = useSignal();
 
   const peaks = useMemo(() => {
-    if (!data?.fft?.length) return [];
-    const maxFFT = Math.max(...data.fft) || 1;
-    const nyquist = data.sampleRate / 2;
-    const freqStep = nyquist / data.fft.length;
-    const threshold = maxFFT * 0.05;
-
-    const rawPeaks: { freq: number; mag: number; db: number }[] = [];
-    for (let i = 1; i < data.fft.length - 1; i++) {
-      if (data.fft[i] >= threshold && data.fft[i] >= data.fft[i - 1] && data.fft[i] >= data.fft[i + 1]) {
-        const freqKHz = (i * freqStep) / 1000;
-        const db = +(20 * Math.log10(data.fft[i] / maxFFT + 1e-12)).toFixed(1);
-        rawPeaks.push({ freq: freqKHz, mag: data.fft[i], db });
-      }
-    }
-    rawPeaks.sort((a, b) => b.mag - a.mag);
-    return rawPeaks.slice(0, 8).map((p, idx) => {
-      let cls = "Sideband";
-      if (idx === 0) cls = "Primary";
-      else if (data.dominantFreq > 0) {
-        const ratio = p.freq / data.dominantFreq;
-        if (Math.abs(ratio - Math.round(ratio)) < 0.08 && Math.round(ratio) >= 2) cls = "Harmonic";
-      }
-      return { rank: idx + 1, freq: p.freq.toFixed(2), db: p.db, classification: cls };
-    });
+    if (!data?.peaks?.length) return [];
+    return data.peaks.slice(0, 8).map((p, idx) => ({
+      rank: idx + 1,
+      freq: p.freq.toFixed(2),
+      db: p.mag.toFixed(1),
+      classification: p.type
+    }));
   }, [data]);
 
-  const clsColor: Record<string, string> = { Primary: "#00e5ff", Harmonic: "#f59e0b", Sideband: "#a855f7" };
+  const clsColor: Record<string, string> = { Carrier: "#00e5ff", Harmonic: "#f59e0b", Sideband: "#a855f7", Spur: "#ef4444", Broadband: "#3b82f6", Noise: "#64748b" };
 
   return (
     <PanelCard bc="rgba(0,212,255,0.1)" gc="rgba(0,212,255,0.02)">
@@ -318,6 +298,9 @@ function BandwidthPanel() {
     { label: "Signal Type", value: data.signalType, color: "#d8b4fe" },
     { label: "Modulation", value: data.modulation, color: "#00e5ff" },
     { label: "Confidence", value: `${data.confidence.toFixed(1)}%`, color: "#22c55e" },
+    ...(data.signalType?.includes("Voice") || data.signalType?.includes("Speech")
+      ? [{ label: "Voice Confidence", value: `${data.voiceConfidence?.toFixed(1) || 0}%`, color: "#ec4899" }]
+      : [])
   ] : [];
 
   return (
@@ -330,6 +313,51 @@ function BandwidthPanel() {
         <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 12, fontWeight: 600,
           color: "#cbd5e1", letterSpacing: "0.08em", textTransform: "uppercase" }}>
           Bandwidth & Classification
+        </span>
+      </div>
+
+      {!data ? (
+        <div style={{ minHeight: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontFamily: "var(--font-rajdhani)", color: "#2d3b54", fontSize: 12 }}>No data</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {rows.map(r => (
+            <div key={r.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.025)" }}>
+              <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10.5, color: "#4a5f82", fontWeight: 500 }}>{r.label}</span>
+              <span style={{ fontFamily: "var(--font-orbitron)", fontSize: 10, color: r.color, fontWeight: 600,
+                textShadow: `0 0 8px ${r.color}60` }}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </PanelCard>
+  );
+}
+
+/* ── Debug Metrics Panel ─────────────────────────────────────────────────── */
+function DebugMetricsPanel() {
+  const { data } = useSignal();
+
+  const rows = data ? [
+    { label: "Spectral Flatness", value: data.spectralFlatness.toFixed(4), color: "#22c55e" },
+    { label: "Peak Count", value: data.peakCount, color: "#f59e0b" },
+    { label: "Primary Carrier", value: data.peaks?.[0]?.freq.toFixed(2) + " kHz" || "N/A", color: "#a855f7" },
+    { label: "Carrier Power", value: data.peaks?.[0]?.mag.toFixed(1) + " dB" || "N/A", color: "#00e5ff" },
+    { label: "Harmonics Found", value: data.peaks?.filter(p => p.type === "Harmonic").length || 0, color: "#d8b4fe" },
+  ] : [];
+
+  return (
+    <PanelCard bc="rgba(34,197,94,0.1)" gc="rgba(34,197,94,0.02)">
+      <div style={{ position: "absolute", top: 0, left: "5%", right: "5%", height: 1,
+        background: "linear-gradient(90deg,transparent,rgba(34,197,94,0.6),transparent)",
+        boxShadow: "0 0 8px rgba(34,197,94,0.3)" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <Activity size={13} style={{ color: "#22c55e" }} />
+        <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 12, fontWeight: 600,
+          color: "#cbd5e1", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          Debug Metrics
         </span>
       </div>
 
@@ -459,10 +487,11 @@ export default function FFTAnalysisPage() {
           {/* Main FFT spectrum */}
           <FFTSpectrumPanel />
 
-          {/* Bottom: Peak Table + Bandwidth Analysis */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {/* Bottom: Peak Table + Bandwidth Analysis + Debug Metrics */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
             <PeakTable />
             <BandwidthPanel />
+            <DebugMetricsPanel />
           </div>
         </div>
       </main>

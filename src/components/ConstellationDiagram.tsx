@@ -25,8 +25,8 @@ export default function ConstellationDiagram() {
     let frame = 0;
 
     const render = () => {
-      // Fade out for persistence effect
-      ctx.fillStyle = "rgba(4,7,20,0.15)";
+      // Fade out for persistence effect (lower opacity = longer trails)
+      ctx.fillStyle = "rgba(4,7,20,0.08)";
       ctx.fillRect(0, 0, size, size);
 
       // Draw grid
@@ -66,12 +66,22 @@ export default function ConstellationDiagram() {
 
       ctx.fillStyle = "#00ffff";
 
-      // Pre-compute maxAmp OUTSIDE the animation loop for performance
-      const maxAmp = (data && data.waveform && data.waveform.length > 1)
-        ? (Math.max(...data.waveform.map(v => Math.abs(v))) || 1)
-        : 1;
-      // Use quarter-wave offset for Hilbert-transform-style IQ derivation
+      // Pre-compute mean and RMS outside the animation loop for true DC removal and scaling
+      let meanI = 0; let meanQ = 0; let rms = 1;
       const iqStep = (data?.waveform?.length) ? Math.max(1, Math.floor(data.waveform.length / 4)) : 1;
+      
+      if (data && data.waveform && data.waveform.length > iqStep) {
+         let sumI = 0, sumQ = 0, sumSq = 0;
+         const limit = data.waveform.length - iqStep;
+         for (let j = 0; j < limit; j++) {
+            sumI += data.waveform[j];
+            sumQ += data.waveform[j + iqStep];
+            sumSq += data.waveform[j]*data.waveform[j] + data.waveform[j+iqStep]*data.waveform[j+iqStep];
+         }
+         meanI = sumI / limit;
+         meanQ = sumQ / limit;
+         rms = Math.sqrt(sumSq / limit) || 1;
+      }
 
       if (data && data.waveform && data.waveform.length > 1) {
         const ptsToDraw = 80;
@@ -82,20 +92,72 @@ export default function ConstellationDiagram() {
           const idx = offset + i;
           if (idx + iqStep >= data.waveform.length) break;
           
-          const noiseLevel = Math.max(0, 1 - data.snr / 40) * 0.1;
+          let I = 0;
+          let Q = 0;
+          const snrNorm = Math.max(0, Math.min(1, data.snr / 45));
+          const noiseSpread = (1 - snrNorm) * 0.5 + 0.03; 
+          const modType = data.signalType || data.modulation || "";
           
-          const I = (data.waveform[idx] / maxAmp) + (Math.random() - 0.5) * noiseLevel;
-          const Q = (data.waveform[idx + iqStep] / maxAmp) + (Math.random() - 0.5) * noiseLevel;
+          // DC removal and auto-scaling
+          const realI = ((data.waveform[idx] - meanI) / rms) * 0.4;
+          const realQ = ((data.waveform[idx + iqStep] - meanQ) / rms) * 0.4;
+          
+          // Jitter and Drift
+          const phaseJitter = (Math.random() - 0.5) * 0.15 * (1 - snrNorm);
+          const ampJitter = 1.0 + (Math.random() - 0.5) * 0.05 * (1 - snrNorm);
+          const symbolDrift = Math.sin(frame * 0.05 + i) * 0.02 * (1 - snrNorm);
+
+          if (modType.includes("Noise") || modType.includes("Speech") || modType.includes("Voice") || modType.includes("Interference")) {
+            // Random Gaussian/diffuse cloud
+            I = realI * ampJitter + (Math.random() - 0.5) * noiseSpread * 2.5;
+            Q = realQ * ampJitter + (Math.random() - 0.5) * noiseSpread * 2.5;
+            I += symbolDrift; Q += symbolDrift;
+          } else if (modType.includes("Carrier") || modType.includes("Tone")) {
+            // Tight center cluster
+            I = (Math.random() - 0.5) * noiseSpread * 0.5 + symbolDrift;
+            Q = (Math.random() - 0.5) * noiseSpread * 0.5 + symbolDrift;
+          } else if (modType.includes("16QAM")) {
+            // 16 Grid Clusters
+            const iVals = [-0.9, -0.3, 0.3, 0.9];
+            const qVals = [-0.9, -0.3, 0.3, 0.9];
+            const baseI = iVals[Math.floor(Math.random() * 4)];
+            const baseQ = qVals[Math.floor(Math.random() * 4)];
+            I = baseI * ampJitter + (Math.random() - 0.5) * noiseSpread;
+            Q = baseQ * ampJitter + (Math.random() - 0.5) * noiseSpread;
+          } else if (modType.includes("8PSK")) {
+            // 8 Phase Clusters
+            const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, 5*Math.PI/4, 3*Math.PI/2, 7*Math.PI/4];
+            const ang = angles[Math.floor(Math.random() * 8)];
+            I = Math.cos(ang) * 0.8 * ampJitter + (Math.random() - 0.5) * noiseSpread;
+            Q = Math.sin(ang) * 0.8 * ampJitter + (Math.random() - 0.5) * noiseSpread;
+          } else if (modType.includes("QPSK") || modType.includes("Modulated") || modType.includes("Harmonic")) {
+            // 4 Clusters
+            const angles = [Math.PI/4, 3*Math.PI/4, 5*Math.PI/4, 7*Math.PI/4];
+            const ang = angles[Math.floor(Math.random() * 4)];
+            I = Math.cos(ang) * 0.8 * ampJitter + (Math.random() - 0.5) * noiseSpread;
+            Q = Math.sin(ang) * 0.8 * ampJitter + (Math.random() - 0.5) * noiseSpread;
+          } else {
+            I = realI + (Math.random() - 0.5) * noiseSpread;
+            Q = realQ + (Math.random() - 0.5) * noiseSpread;
+          }
+          
+          // Global rotation offset
+          const offsetPhase = frame * 0.01 + phaseJitter;
+          if (!modType.includes("Noise") && !modType.includes("Carrier") && !modType.includes("Tone") && !modType.includes("Speech")) {
+             const rotI = I * Math.cos(offsetPhase) - Q * Math.sin(offsetPhase);
+             const rotQ = I * Math.sin(offsetPhase) + Q * Math.cos(offsetPhase);
+             I = rotI; Q = rotQ;
+          }
 
           const x = cx + I * r;
           const y = cy - Q * r;
 
-          ctx.globalAlpha = 1 - (i / ptsToDraw) * 0.7;
+          ctx.globalAlpha = 1 - (i / ptsToDraw) * 0.8;
           ctx.beginPath();
-          const ptSize = 1.2 + (1 - i / ptsToDraw) * 1.5;
+          const ptSize = 0.8 + (1 - i / ptsToDraw) * 1.0;
           ctx.arc(x, y, ptSize, 0, Math.PI * 2);
           
-          ctx.shadowBlur = 10;
+          ctx.shadowBlur = 4;
           ctx.shadowColor = "#00ffff";
           ctx.fillStyle = "#00ffff";
           ctx.fill();
@@ -145,7 +207,7 @@ export default function ConstellationDiagram() {
           fontSize: 12, fontWeight: 500, color: "#cbd5e1", letterSpacing: "0.04em",
           textShadow: "0 0 8px rgba(255,255,255,0.1)",
         }}>
-          Constellation (I/Q)
+          Pseudo-IQ Visualization
         </span>
         <button className="flex items-center gap-1" style={{
           fontFamily: "var(--font-rajdhani)",

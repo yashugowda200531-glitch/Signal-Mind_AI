@@ -89,7 +89,7 @@ export default function AnalysisHistory() {
                 const qualColor = qualNum > 80 ? "#22c55e" : qualNum > 50 ? "#f59e0b" : "#ef4444";
                 const statusColor = row.status === "Completed" ? "#22c55e" : row.status === "Failed" ? "#ef4444" : "#f59e0b";
                 return (
-                <tr key={`${row.file}-${row.time}`} className="group cursor-pointer transition-colors hover:bg-[rgba(0,212,255,0.03)]">
+                <tr key={`${row.file}-${row.time}-${Math.random()}`} className="group cursor-pointer transition-colors hover:bg-[rgba(0,212,255,0.03)]">
                   <td style={{
                     padding: "8px 4px", borderBottom: "1px solid rgba(255,255,255,0.02)",
                   }}>

@@ -32,16 +32,14 @@ export default function SignalChart() {
   const chartData = useMemo(() => {
     if (!data?.waveform || data.waveform.length === 0) return [];
     
-    // Normalize waveform in component as requested
-    const maxAmp = Math.max(...data.waveform.map(v => Math.abs(v))) || 1;
-    
+    // Backend normalizes waveform to [-1, 1], so we can just use the raw values
     const maxPts = 800;
     const step = Math.max(1, Math.floor(data.waveform.length / maxPts));
     const pts = [];
     for (let i = 0; i < data.waveform.length; i += step) {
       pts.push({ 
         t: +(i / data.sampleRate).toFixed(4), 
-        value: data.waveform[i] / maxAmp 
+        value: data.waveform[i]
       });
     }
     return pts;

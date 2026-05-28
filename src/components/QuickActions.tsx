@@ -22,7 +22,7 @@ export default function QuickActions() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = (format: "json" | "csv") => {
     if (!data) return;
     const report = {
       generated: new Date().toISOString(),
@@ -42,11 +42,26 @@ export default function QuickActions() {
       waveformSamples: data.waveform.length,
       fftBins: data.fft.length,
     };
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    
+    let content = "";
+    let mime = "";
+    let ext = "";
+    
+    if (format === "json") {
+      content = JSON.stringify(report, null, 2);
+      mime = "application/json";
+      ext = "json";
+    } else {
+      content = Object.keys(report).join(",") + "\n" + Object.values(report).join(",");
+      mime = "text/csv";
+      ext = "csv";
+    }
+    
+    const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `signal-report-${Date.now()}.json`;
+    a.download = `signal-report-${Date.now()}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -119,7 +134,7 @@ export default function QuickActions() {
         </button>
 
         <button
-          onClick={handleExport}
+          onClick={() => handleExport("json")}
           disabled={!data}
           className="flex items-center justify-between group"
           style={{
@@ -136,7 +151,29 @@ export default function QuickActions() {
             <span style={{
               fontFamily: "var(--font-rajdhani)",
               fontSize: 10.5, fontWeight: 500, color: data ? "#60a5fa" : "#5c7399", letterSpacing: "0.04em",
-            }}>Export Report</span>
+            }}>Export JSON</span>
+          </div>
+        </button>
+
+        <button
+          onClick={() => handleExport("csv")}
+          disabled={!data}
+          className="flex items-center justify-between group"
+          style={{
+            background: data ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.02)",
+            border: `1px solid ${data ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)"}`,
+            borderRadius: 6, padding: "6px 10px",
+            cursor: data ? "pointer" : "not-allowed",
+            transition: "all 0.2s ease",
+            opacity: data ? 1 : 0.5,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Download style={{ width: 13, height: 13, color: data ? "#22c55e" : "#45597a" }} strokeWidth={1.8} />
+            <span style={{
+              fontFamily: "var(--font-rajdhani)",
+              fontSize: 10.5, fontWeight: 500, color: data ? "#4ade80" : "#5c7399", letterSpacing: "0.04em",
+            }}>Export CSV</span>
           </div>
         </button>
 
