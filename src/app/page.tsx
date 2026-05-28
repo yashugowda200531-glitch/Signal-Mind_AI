@@ -52,8 +52,8 @@ export default function DashboardPage() {
       glowColor: "#22c55e",
     },
     {
-      label: "Data Rate", value: data ? (data.snr > 30 ? "256" : "128") : "--", unit: "kbps",
-      status: "Estimated", statusColor: "#4a5f82",
+      label: "Data Rate", value: data ? data.dataRate.toFixed(1) : "--", unit: "kbps",
+      status: data ? "Shannon est." : "--", statusColor: "#4a5f82",
       icon: <TrendingUp style={{ width: 13, height: 13, color: "#00d4ff" }} strokeWidth={2} />,
       glowColor: "#00d4ff",
     },

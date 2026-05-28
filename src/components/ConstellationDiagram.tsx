@@ -66,30 +66,32 @@ export default function ConstellationDiagram() {
 
       ctx.fillStyle = "#00ffff";
 
+      // Pre-compute maxAmp OUTSIDE the animation loop for performance
+      const maxAmp = (data && data.waveform && data.waveform.length > 1)
+        ? (Math.max(...data.waveform.map(v => Math.abs(v))) || 1)
+        : 1;
+      // Use quarter-wave offset for Hilbert-transform-style IQ derivation
+      const iqStep = (data?.waveform?.length) ? Math.max(1, Math.floor(data.waveform.length / 4)) : 1;
+
       if (data && data.waveform && data.waveform.length > 1) {
-        const maxAmp = Math.max(...data.waveform.map(v => Math.abs(v))) || 1;
-        // Map consecutive real samples to I and Q for a phase plot
-        // To animate, we iterate through the array over time
-        const ptsToDraw = 40;
-        const offset = (frame * 5) % (data.waveform.length - ptsToDraw);
+        const ptsToDraw = 80;
+        const maxIdx = data.waveform.length - iqStep - 1;
+        const offset = (frame * 3) % Math.max(1, maxIdx - ptsToDraw);
         
         for (let i = 0; i < ptsToDraw; i++) {
           const idx = offset + i;
-          if (idx + 1 >= data.waveform.length) break;
+          if (idx + iqStep >= data.waveform.length) break;
           
-          // Add synthetic noise proportional to 1/SNR
-          const noiseLevel = Math.max(0, 1 - data.snr / 40) * 0.2;
+          const noiseLevel = Math.max(0, 1 - data.snr / 40) * 0.1;
           
           const I = (data.waveform[idx] / maxAmp) + (Math.random() - 0.5) * noiseLevel;
-          const Q = (data.waveform[idx + 1] / maxAmp) + (Math.random() - 0.5) * noiseLevel;
+          const Q = (data.waveform[idx + iqStep] / maxAmp) + (Math.random() - 0.5) * noiseLevel;
 
           const x = cx + I * r;
-          const y = cy - Q * r; // Invert Q
+          const y = cy - Q * r;
 
-          // Trail effect transparency
-          ctx.globalAlpha = 1 - (i / ptsToDraw) * 0.8;
+          ctx.globalAlpha = 1 - (i / ptsToDraw) * 0.7;
           ctx.beginPath();
-          // Point scaling based on index
           const ptSize = 1.2 + (1 - i / ptsToDraw) * 1.5;
           ctx.arc(x, y, ptSize, 0, Math.PI * 2);
           

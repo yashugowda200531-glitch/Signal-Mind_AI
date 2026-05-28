@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo } from "react";
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
@@ -46,12 +46,6 @@ export default function SignalChart() {
     }
     return pts;
   }, [data?.waveform, data?.sampleRate]);
-
-  useEffect(() => {
-    if (chartData.length > 0) {
-      console.log("waveform:", chartData.slice(0, 5));
-    }
-  }, [chartData]);
 
   return (
     <div className="relative overflow-hidden" style={{

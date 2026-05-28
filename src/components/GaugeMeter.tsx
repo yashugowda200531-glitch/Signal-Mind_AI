@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 interface Props { value?: number; label?: string; status?: string; }
 
-export default function GaugeMeter({ value = 92.4, label = "92.4%", status = "Excellent" }: Props) {
+export default function GaugeMeter({ value = 0, label = "0%", status = "--" }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {

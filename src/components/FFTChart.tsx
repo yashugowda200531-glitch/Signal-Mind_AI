@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, Tooltip,
@@ -21,7 +21,7 @@ const Tip = ({ active, payload, label }: any) =>
         {label} kHz
       </div>
       <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#e2e8f0", fontWeight: 400 }}>
-        {payload[0]?.value} dB
+        {payload[0]?.value?.toFixed(1)} dB
       </div>
     </div>
   ) : null;
@@ -31,9 +31,7 @@ export default function FFTChart() {
   const chartData = useMemo(() => {
     if (!data?.fft || data.fft.length === 0) return [];
     
-    // Normalize FFT inside component as requested
     const maxFFT = Math.max(...data.fft) || 1;
-    
     const maxPts = 500;
     const step = Math.max(1, Math.floor(data.fft.length / maxPts));
     const nyquist = data.sampleRate / 2;
@@ -41,19 +39,12 @@ export default function FFTChart() {
     
     const pts = [];
     for (let i = 0; i < data.fft.length; i += step) {
-      pts.push({ 
-        freq: +((i * freqStep) / 1000).toFixed(2), 
-        magnitude: (data.fft[i] / maxFFT) * 100
-      });
+      const mag = data.fft[i] / maxFFT;
+      const db = +(20 * Math.log10(mag + 1e-12)).toFixed(1);
+      pts.push({ freq: +((i * freqStep) / 1000).toFixed(2), magnitude: db });
     }
     return pts;
   }, [data?.fft, data?.sampleRate]);
-
-  useEffect(() => {
-    if (chartData.length > 0) {
-      console.log("fft:", chartData.slice(0, 5));
-    }
-  }, [chartData]);
 
   return (
     <div className="relative overflow-hidden" style={{
@@ -153,11 +144,11 @@ export default function FFTChart() {
               label={{ value: "Frequency (kHz)", position: "insideBottomRight", offset: -4, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
             />
             <YAxis
-              domain={[0, 100]} tickCount={6}
+              domain={[-100, 0]} tickCount={6}
               tick={{ fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
               tickLine={false}
               axisLine={{ stroke: "rgba(168,85,247,0.05)" }}
-              label={{ value: "Magnitude (Relative)", angle: -90, position: "insideLeft", offset: 20, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
+              label={{ value: "Magnitude (dB)", angle: -90, position: "insideLeft", offset: 20, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
             />
             <Tooltip content={<Tip />} cursor={{ stroke: "rgba(168,85,247,0.2)", strokeWidth: 1 }} />
             <Area

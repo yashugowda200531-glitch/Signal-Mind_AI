@@ -1,12 +1,28 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { Menu, Search, Bell, Settings, User } from "lucide-react";
 
 export default function Header() {
   const [time, setTime] = useState("");
   const [date, setDate] = useState("");
+  const pathname = usePathname();
+
+  const TITLES: Record<string, { title: string; subtitle: string }> = {
+    "/": { title: "Dashboard", subtitle: "Real-time Signal Intelligence Overview" },
+    "/signal-analysis": { title: "Signal Analysis", subtitle: "Advanced SDR Waveform Inspection" },
+    "/fft-analysis": { title: "FFT Analysis", subtitle: "Frequency Domain Spectral Workspace" },
+    "/spectrogram": { title: "Spectrogram", subtitle: "Time-Frequency Visualization" },
+    "/modulation": { title: "Modulation Detection", subtitle: "Automatic Signal Classification" },
+    "/filters": { title: "Filters & Processing", subtitle: "DSP Filter Configuration" },
+    "/ai-assistant": { title: "AI Assistant", subtitle: "Intelligent Signal Analysis" },
+    "/reports": { title: "Reports", subtitle: "Signal Analysis Reports" },
+    "/data-logs": { title: "Data Logs", subtitle: "Analysis History & Logs" },
+    "/settings": { title: "Settings", subtitle: "System Configuration" },
+  };
+  const { title: pageTitle, subtitle: pageSubtitle } = TITLES[pathname] || TITLES["/"];
 
   useEffect(() => {
     const tick = () => {
@@ -48,7 +64,7 @@ export default function Header() {
             lineHeight: 1.2,
             textShadow: "0 0 24px rgba(0,212,255,0.12)",
           }}>
-            Dashboard
+            {pageTitle}
           </h1>
           <p style={{
             fontFamily: "var(--font-rajdhani)",
@@ -60,7 +76,7 @@ export default function Header() {
             lineHeight: 1,
             textShadow: "0 0 12px rgba(0,212,255,0.3)",
           }}>
-            Real-time Signal Intelligence Overview
+            {pageSubtitle}
           </p>
         </div>
       </div>

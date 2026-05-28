@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Info, Cpu, ChevronRight, Activity, Radio, Wifi } from "lucide-react";
+import Link from "next/link";
 import GaugeMeter from "./GaugeMeter";
 
 import { useSignal } from "@/context/SignalContext";
@@ -22,23 +23,23 @@ const TOP = <div className="absolute top-0 left-[12%] right-[12%]" style={{
 }} />;
 
 const generateINFO = (data: any) => [
-  { label: "Signal Type:",      val: data ? data.modulation : "--",                    col: "#00d4ff" },
-  { label: "Modulation:",       val: data ? data.modulation : "--",                    col: "#00d4ff" },
+  { label: "Signal Type:",      val: data ? data.signalType : "--",                       col: "#00d4ff" },
+  { label: "Modulation:",       val: data ? data.modulation : "--",                       col: "#00d4ff" },
   { label: "Center Frequency:", val: data ? `${data.dominantFreq.toFixed(2)} kHz` : "--", col: "#c8d4e4" },
   { label: "Sample Rate:",      val: data ? `${(data.sampleRate/1000).toFixed(1)} kHz` : "--", col: "#c8d4e4" },
-  { label: "Duration:",         val: data ? `${data.duration.toFixed(2)} s` : "--",    col: "#c8d4e4" },
-  { label: "Samples:",          val: data ? `${(data.duration * data.sampleRate).toLocaleString()}` : "--", col: "#c8d4e4" },
-  { label: "Bit Rate:",         val: data ? (data.snr > 30 ? "256 kbps" : "128 kbps") : "--", col: "#c8d4e4" },
-  { label: "Confidence:",       val: data ? `${data.quality.toFixed(1)}%` : "--",      col: "#22c55e" },
+  { label: "Duration:",         val: data ? `${data.duration.toFixed(2)} s` : "--",       col: "#c8d4e4" },
+  { label: "Samples:",          val: data ? `${data.waveform.length.toLocaleString()}` : "--", col: "#c8d4e4" },
+  { label: "Data Rate:",        val: data ? `${data.dataRate.toFixed(1)} kbps` : "--",    col: "#c8d4e4" },
+  { label: "Confidence:",       val: data ? `${data.confidence.toFixed(1)}%` : "--",      col: "#22c55e" },
 ];
 
 const generateAI = (data: any) => [
-  { label: "Modulation Detected",       val: data ? data.modulation : "--",       col: "#00d4ff" },
-  { label: "Signal Quality Assessment", val: data ? (data.quality > 80 ? "Excellent" : "Fair") : "--", col: "#22c55e" },
-  { label: "Noise Level",              val: data ? (data.snr > 20 ? "Low" : "High") : "--",        col: "#22c55e" },
-  { label: "Interference Detection",   val: "None",       col: "#22c55e" },
-  { label: "Anomaly Detection",        val: "Normal",     col: "#22c55e" },
-  { label: "Overall Confidence",       val: data ? `${data.quality.toFixed(1)}%` : "--",      col: "#22c55e" },
+  { label: "Modulation Detected",       val: data ? data.modulation : "--",                              col: "#00d4ff" },
+  { label: "Signal Quality Assessment", val: data ? (data.quality > 80 ? "Excellent" : data.quality > 50 ? "Good" : "Poor") : "--", col: data && data.quality > 80 ? "#22c55e" : data && data.quality > 50 ? "#f59e0b" : "#ef4444" },
+  { label: "Noise Level",              val: data ? (data.snr < 10 ? "High" : data.snr < 20 ? "Moderate" : "Low") : "--",  col: data && data.snr >= 20 ? "#22c55e" : "#f59e0b" },
+  { label: "Interference Detection",   val: data ? (data.bandwidth > 15 ? "Detected" : "None") : "--",  col: data && data.bandwidth > 15 ? "#f59e0b" : "#22c55e" },
+  { label: "Anomaly Detection",        val: data ? (data.spectralFlatness > 0.8 ? "Anomalous" : "Normal") : "--", col: data && data.spectralFlatness > 0.8 ? "#ef4444" : "#22c55e" },
+  { label: "Overall Confidence",       val: data ? `${data.confidence.toFixed(1)}%` : "--",              col: "#a855f7" },
 ];
 
 function Title({ icon: I, label, color }: { icon: any; label: string; color: string }) {
@@ -216,7 +217,9 @@ export default function AnalysisPanel() {
             cursor: "pointer",
           }}
         >
-          <span>View Detailed Analysis</span>
+          <Link href="/signal-analysis" style={{ textDecoration: "none" }}>
+            <span>View Detailed Analysis</span>
+          </Link>
           <ChevronRight style={{ width: 14, height: 14, color: "#c084fc" }} />
         </motion.button>
       </motion.div>

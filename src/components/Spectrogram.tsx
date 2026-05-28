@@ -146,13 +146,16 @@ export default function Spectrogram() {
       {/* Chart area with axes */}
       <div className="flex gap-1.5 mt-2 w-full h-full min-h-[320px]" style={{ minHeight: 320 }}>
         {/* Y-axis labels */}
-        <div className="flex flex-col justify-between items-end" style={{ width: 20, paddingBottom: 16, paddingTop: 0 }}>
-          {["20", "15", "10", "5", "0"].map((v) => (
-            <span key={v} style={{
-              fontFamily: "var(--font-rajdhani)",
-              fontSize: 8.5, color: "#30405c", fontWeight: 400,
-            }}>{v}</span>
-          ))}
+        <div className="flex flex-col justify-between items-end" style={{ width: 24, paddingBottom: 16, paddingTop: 0 }}>
+          {(() => {
+            const nyq = data ? data.sampleRate / 2000 : 20;
+            return [nyq, nyq * 0.75, nyq * 0.5, nyq * 0.25, 0].map((v) => (
+              <span key={v} style={{
+                fontFamily: "var(--font-rajdhani)",
+                fontSize: 8.5, color: "#30405c", fontWeight: 400,
+              }}>{v.toFixed(v >= 10 ? 0 : 1)}</span>
+            ));
+          })()}
         </div>
 
         {/* Canvas + X-axis */}
@@ -169,12 +172,15 @@ export default function Spectrogram() {
             />
           </div>
           <div className="flex justify-between" style={{ marginTop: 2, paddingLeft: 2, paddingRight: 2 }}>
-            {["0", "0.5", "1.0", "1.5", "2.0"].map((v) => (
-              <span key={v} style={{
-                fontFamily: "var(--font-rajdhani)",
-                fontSize: 8.5, color: "#30405c", fontWeight: 400,
-              }}>{v}</span>
-            ))}
+            {(() => {
+              const dur = data ? data.duration : 2;
+              return [0, dur * 0.25, dur * 0.5, dur * 0.75, dur].map((v) => (
+                <span key={v} style={{
+                  fontFamily: "var(--font-rajdhani)",
+                  fontSize: 8.5, color: "#30405c", fontWeight: 400,
+                }}>{v.toFixed(1)}</span>
+              ));
+            })()}
           </div>
           <div className="text-center" style={{
             fontFamily: "var(--font-rajdhani)",

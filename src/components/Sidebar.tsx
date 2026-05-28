@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef } from "react";
+import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard, Activity, BarChart3, Layers, Radio,
@@ -9,16 +11,16 @@ import {
 import { useSignal } from "@/context/SignalContext";
 
 const NAV = [
-  { icon: LayoutDashboard, label: "Dashboard",           active: true  },
-  { icon: Activity,        label: "Signal Analysis",     active: false },
-  { icon: BarChart3,       label: "FFT Analysis",        active: false },
-  { icon: Layers,          label: "Spectrogram",         active: false },
-  { icon: Radio,           label: "Modulation Detection",active: false },
-  { icon: Filter,          label: "Filters & Processing",active: false },
-  { icon: Bot,             label: "AI Assistant",        active: false },
-  { icon: FileText,        label: "Reports",             active: false },
-  { icon: Database,        label: "Data Logs",           active: false },
-  { icon: Settings,        label: "Settings",            active: false },
+  { icon: LayoutDashboard, label: "Dashboard",           href: "/"                },
+  { icon: Activity,        label: "Signal Analysis",     href: "/signal-analysis" },
+  { icon: BarChart3,       label: "FFT Analysis",        href: "/fft-analysis"    },
+  { icon: Layers,          label: "Spectrogram",         href: "/spectrogram"     },
+  { icon: Radio,           label: "Modulation Detection",href: "/modulation"      },
+  { icon: Filter,          label: "Filters & Processing",href: "/filters"         },
+  { icon: Bot,             label: "AI Assistant",        href: "/ai-assistant"    },
+  { icon: FileText,        label: "Reports",             href: "/reports"         },
+  { icon: Database,        label: "Data Logs",           href: "/data-logs"       },
+  { icon: Settings,        label: "Settings",            href: "/settings"        },
 ];
 
 const RES = [
@@ -31,6 +33,7 @@ const RES = [
 export default function Sidebar() {
   const { uploadSignal, isProcessing } = useSignal();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pathname = usePathname();
 
   const handleUploadClick = () => {
     if (!isProcessing && fileInputRef.current) {
@@ -103,51 +106,53 @@ export default function Sidebar() {
 
       {/* ── Navigation ── */}
       <nav className="flex-1 py-3 overflow-y-auto scrollbar-hide flex flex-col gap-0.5">
-        {NAV.map((item) => (
-          <motion.button
-            key={item.label}
-            whileHover={{ x: 2, backgroundColor: "rgba(0,212,255,0.03)" }}
-            transition={{ duration: 0.15 }}
-            className={`w-full flex items-center gap-2.5 px-3.5 relative ${
-              item.active ? "nav-active" : ""
-            }`}
-            style={{ height: 32, cursor: "pointer", border: "none", background: "transparent" }}
-          >
-            <item.icon
-              className="flex-shrink-0"
-              style={{
-                width: 13, height: 13,
-                color: item.active ? "#00d4ff" : "#2d3b54",
-                filter: item.active ? "drop-shadow(0 0 6px rgba(0,212,255,0.8))" : "none",
-                transition: "all 0.3s ease",
-              }}
-              strokeWidth={item.active ? 1.8 : 1.4}
-            />
-            <span
-              style={{
-                fontFamily: "var(--font-rajdhani)",
-                fontSize: 11.5, fontWeight: item.active ? 500 : 400,
-                color: item.active ? "#e2e8f0" : "#45597a",
-                letterSpacing: "0.04em", lineHeight: 1,
-                transition: "color 0.3s ease",
-                textShadow: item.active ? "0 0 12px rgba(0,212,255,0.3)" : "none",
-              }}
-            >
-              {item.label}
-            </span>
-            {item.active && (
+        {NAV.map((item) => {
+          const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+          return (
+            <Link key={item.label} href={item.href} style={{ textDecoration: "none" }}>
               <motion.div
-                layoutId="navGlow"
-                className="absolute left-0 top-0 bottom-0"
-                style={{
-                  width: 2,
-                  background: "linear-gradient(180deg, transparent, #00d4ff, transparent)",
-                  boxShadow: "2px 0 12px #00d4ff, 0 0 20px rgba(0,212,255,0.4)",
-                }}
-              />
-            )}
-          </motion.button>
-        ))}
+                whileHover={{ x: 2, backgroundColor: "rgba(0,212,255,0.03)" }}
+                transition={{ duration: 0.15 }}
+                className={`w-full flex items-center gap-2.5 px-3.5 relative ${isActive ? "nav-active" : ""}`}
+                style={{ height: 32, cursor: "pointer" }}
+              >
+                <item.icon
+                  className="flex-shrink-0"
+                  style={{
+                    width: 13, height: 13,
+                    color: isActive ? "#00d4ff" : "#2d3b54",
+                    filter: isActive ? "drop-shadow(0 0 6px rgba(0,212,255,0.8))" : "none",
+                    transition: "all 0.3s ease",
+                  }}
+                  strokeWidth={isActive ? 1.8 : 1.4}
+                />
+                <span
+                  style={{
+                    fontFamily: "var(--font-rajdhani)",
+                    fontSize: 11.5, fontWeight: isActive ? 500 : 400,
+                    color: isActive ? "#e2e8f0" : "#45597a",
+                    letterSpacing: "0.04em", lineHeight: 1,
+                    transition: "color 0.3s ease",
+                    textShadow: isActive ? "0 0 12px rgba(0,212,255,0.3)" : "none",
+                  }}
+                >
+                  {item.label}
+                </span>
+                {isActive && (
+                  <motion.div
+                    layoutId="navGlow"
+                    className="absolute left-0 top-0 bottom-0"
+                    style={{
+                      width: 2,
+                      background: "linear-gradient(180deg, transparent, #00d4ff, transparent)",
+                      boxShadow: "2px 0 12px #00d4ff, 0 0 20px rgba(0,212,255,0.4)",
+                    }}
+                  />
+                )}
+              </motion.div>
+            </Link>
+          );
+        })}
       </nav>
 
       {/* ── System Resources ── */}

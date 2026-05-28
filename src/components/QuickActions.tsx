@@ -2,11 +2,11 @@
 
 import { useRef } from "react";
 import { motion } from "framer-motion";
-import { Upload, Download, RefreshCw, Share2, Play, AlertTriangle } from "lucide-react";
+import { Upload, Download, Play, AlertTriangle, CheckCircle } from "lucide-react";
 import { useSignal } from "@/context/SignalContext";
 
 export default function QuickActions() {
-  const { uploadSignal, isProcessing } = useSignal();
+  const { data, uploadSignal, isProcessing } = useSignal();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUploadClick = () => {
@@ -18,9 +18,41 @@ export default function QuickActions() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       uploadSignal(e.target.files[0]);
-      e.target.value = ""; // Reset to allow same file re-upload
+      e.target.value = "";
     }
   };
+
+  const handleExport = () => {
+    if (!data) return;
+    const report = {
+      generated: new Date().toISOString(),
+      file: data.fileName,
+      sampleRate: data.sampleRate,
+      duration: data.duration,
+      dominantFrequencyKHz: data.dominantFreq,
+      bandwidthKHz: data.bandwidth,
+      powerDbm: data.power,
+      snrDb: data.snr,
+      signalQualityPct: data.quality,
+      modulation: data.modulation,
+      confidence: data.confidence,
+      signalType: data.signalType,
+      spectralFlatness: data.spectralFlatness,
+      dataRateKbps: data.dataRate,
+      waveformSamples: data.waveform.length,
+      fftBins: data.fft.length,
+    };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `signal-report-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Dynamic warning/status message
+  const hasInterference = data ? data.bandwidth > 15 : false;
 
   return (
     <motion.div
@@ -86,16 +118,25 @@ export default function QuickActions() {
           </div>
         </button>
 
-        <button className="flex items-center justify-between group" style={{
-          background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
-          borderRadius: 6, padding: "6px 10px", cursor: "pointer", transition: "all 0.2s ease",
-        }}>
+        <button
+          onClick={handleExport}
+          disabled={!data}
+          className="flex items-center justify-between group"
+          style={{
+            background: data ? "rgba(59,130,246,0.05)" : "rgba(255,255,255,0.02)",
+            border: `1px solid ${data ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.04)"}`,
+            borderRadius: 6, padding: "6px 10px",
+            cursor: data ? "pointer" : "not-allowed",
+            transition: "all 0.2s ease",
+            opacity: data ? 1 : 0.5,
+          }}
+        >
           <div className="flex items-center gap-2">
-            <Download style={{ width: 13, height: 13, color: "#45597a" }} strokeWidth={1.8} className="group-hover:text-blue-400 transition-colors" />
+            <Download style={{ width: 13, height: 13, color: data ? "#3b82f6" : "#45597a" }} strokeWidth={1.8} />
             <span style={{
               fontFamily: "var(--font-rajdhani)",
-              fontSize: 10.5, fontWeight: 500, color: "#5c7399", letterSpacing: "0.04em",
-            }} className="group-hover:text-blue-200 transition-colors">Export Report</span>
+              fontSize: 10.5, fontWeight: 500, color: data ? "#60a5fa" : "#5c7399", letterSpacing: "0.04em",
+            }}>Export Report</span>
           </div>
         </button>
 
@@ -119,16 +160,25 @@ export default function QuickActions() {
       </div>
 
       <div className="mt-3 p-2 rounded-md" style={{
-        background: "rgba(245,158,11,0.05)",
-        border: "1px solid rgba(245,158,11,0.15)",
+        background: hasInterference ? "rgba(245,158,11,0.05)" : "rgba(34,197,94,0.05)",
+        border: `1px solid ${hasInterference ? "rgba(245,158,11,0.15)" : "rgba(34,197,94,0.15)"}`,
       }}>
         <div className="flex items-start gap-1.5">
-          <AlertTriangle style={{ width: 12, height: 12, color: "#f59e0b", marginTop: 1 }} strokeWidth={2} />
+          {hasInterference ? (
+            <AlertTriangle style={{ width: 12, height: 12, color: "#f59e0b", marginTop: 1 }} strokeWidth={2} />
+          ) : (
+            <CheckCircle style={{ width: 12, height: 12, color: "#22c55e", marginTop: 1 }} strokeWidth={2} />
+          )}
           <p style={{
             fontFamily: "var(--font-inter)",
-            fontSize: 9, color: "#d97706", lineHeight: 1.4,
+            fontSize: 9, color: hasInterference ? "#d97706" : "#16a34a", lineHeight: 1.4,
           }}>
-            Interference detected in 2.4GHz band. Auto-filtering is recommended for accurate demodulation.
+            {data
+              ? hasInterference
+                ? `Broadband interference detected (${data.bandwidth.toFixed(1)} kHz BW). Auto-filtering recommended.`
+                : `Signal is clean — ${data.modulation} detected with ${data.confidence.toFixed(0)}% confidence.`
+              : "Upload a WAV file to begin analysis."
+            }
           </p>
         </div>
       </div>

@@ -84,8 +84,12 @@ export default function AnalysisHistory() {
                 </td>
               </tr>
             ) : (
-              history.map((row, i) => (
-                <tr key={i} className="group cursor-pointer transition-colors hover:bg-[rgba(0,212,255,0.03)]">
+              history.map((row) => {
+                const qualNum = parseFloat(row.quality) || 0;
+                const qualColor = qualNum > 80 ? "#22c55e" : qualNum > 50 ? "#f59e0b" : "#ef4444";
+                const statusColor = row.status === "Completed" ? "#22c55e" : row.status === "Failed" ? "#ef4444" : "#f59e0b";
+                return (
+                <tr key={`${row.file}-${row.time}`} className="group cursor-pointer transition-colors hover:bg-[rgba(0,212,255,0.03)]">
                   <td style={{
                     padding: "8px 4px", borderBottom: "1px solid rgba(255,255,255,0.02)",
                   }}>
@@ -106,20 +110,21 @@ export default function AnalysisHistory() {
                     <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 11, color: "#8a9ebf" }}>{row.time}</span>
                   </td>
                   <td style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)" }}>
-                    <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 11, fontWeight: 600, color: "#22c55e" }}>
+                    <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 11, fontWeight: 600, color: qualColor }}>
                       {row.quality}
                     </span>
                   </td>
                   <td style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)" }}>
                     <div className="flex items-center gap-1.5">
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
-                      <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10.5, fontWeight: 500, color: "#22c55e" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
+                      <span style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10.5, fontWeight: 500, color: statusColor }}>
                         {row.status}
                       </span>
                     </div>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
