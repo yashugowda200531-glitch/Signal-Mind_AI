@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode } from "react";
 import axios from "axios";
+import { generateLiveFrame, resetIqEngine, type IQPoint, type ModulationMetrics } from "@/lib/iqEngine";
 
 export interface HistoryItem {
   file: string;
@@ -50,6 +51,8 @@ export interface SignalData {
   crestFactor: number;
   noiseFloor: number;
   spectrogram: number[][];
+  iqConstellation: IQPoint[];
+  modMetrics: ModulationMetrics;
 }
 
 interface SignalContextProps {
@@ -125,37 +128,43 @@ export function SignalProvider({ children }: { children: ReactNode }) {
       const snrLinear = Math.pow(10, snr / 10);
       const dataRate = bandwidth > 0 ? bandwidth * Math.log2(1 + snrLinear) : 0; // kbps approx
 
-      const newAnalysis: SignalData = {
-        fileName: file.name,
-        waveform: rawWave,
-        fft: rawFft,
-        sampleRate: sr,
-        duration,
-        dominantFreq: +domFreq.toFixed(2),
-        dominantMag: +maxMag.toFixed(1),
-        power: +powerDb.toFixed(1),
-        snr: +snr.toFixed(1),
-        bandwidth: +bandwidth.toFixed(2),
-        quality: +quality.toFixed(1),
-        modulation,
-        confidence: +confidence.toFixed(1),
-        signalType,
-        spectralFlatness: +spectralFlatness.toFixed(4),
-        dataRate: +dataRate.toFixed(1),
-        peakCount,
-        voiceConfidence: +voiceConfidence.toFixed(1),
-        rawFft: rawFft,
-        peaks,
-        spectralCentroid: +spectralCentroid.toFixed(2),
-        fundamentalFreq: +fundamentalFreq.toFixed(2),
-        rmsPower: +rmsPower.toFixed(1),
-        spectralEntropy: +spectralEntropy.toFixed(4),
-        zeroCrossingRate: +zeroCrossingRate.toFixed(4),
-        spectralRolloff: +spectralRolloff.toFixed(2),
-        crestFactor: +crestFactor.toFixed(2),
-        noiseFloor: +noiseFloor.toFixed(1),
-        spectrogram,
-      };
+        // Reset IQ engine state for fresh signal
+        resetIqEngine();
+        const iqFrame = generateLiveFrame(modulation, snr);
+
+        const newAnalysis: SignalData = {
+          fileName: file.name,
+          waveform: rawWave,
+          fft: rawFft,
+          sampleRate: sr,
+          duration,
+          dominantFreq: +domFreq.toFixed(2),
+          dominantMag: +maxMag.toFixed(1),
+          power: +powerDb.toFixed(1),
+          snr: +snr.toFixed(1),
+          bandwidth: +bandwidth.toFixed(2),
+          quality: +quality.toFixed(1),
+          modulation,
+          confidence: +confidence.toFixed(1),
+          signalType,
+          spectralFlatness: +spectralFlatness.toFixed(4),
+          dataRate: +dataRate.toFixed(1),
+          peakCount,
+          voiceConfidence: +voiceConfidence.toFixed(1),
+          rawFft: rawFft,
+          peaks,
+          spectralCentroid: +spectralCentroid.toFixed(2),
+          fundamentalFreq: +fundamentalFreq.toFixed(2),
+          rmsPower: +rmsPower.toFixed(1),
+          spectralEntropy: +spectralEntropy.toFixed(4),
+          zeroCrossingRate: +zeroCrossingRate.toFixed(4),
+          spectralRolloff: +spectralRolloff.toFixed(2),
+          crestFactor: +crestFactor.toFixed(2),
+          noiseFloor: +noiseFloor.toFixed(1),
+          spectrogram,
+          iqConstellation: iqFrame.points,
+          modMetrics: iqFrame.metrics,
+        };
 
       setData(newAnalysis);
 

@@ -947,6 +947,11 @@ function ExportButton() {
 // ─── Main page ─────────────────────────────────────────────────────────────
 export default function SignalAnalysisPage() {
   const { data } = useSignal();
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const metrics = data
     ? [
@@ -1033,10 +1038,13 @@ export default function SignalAnalysisPage() {
       <Header />
 
       <main className="relative z-10" style={{ marginLeft: 156, paddingTop: 64 }}>
-        <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
+        {!isMounted ? (
+           <div style={{ height: "100vh" }} />
+        ) : (
+          <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {/* ── Page header ── */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            {/* ── Page header ── */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div
                 style={{
@@ -1084,8 +1092,8 @@ export default function SignalAnalysisPage() {
             <AIAnalysisPanel />
             <SignalInfoPanel />
           </div>
-
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );
