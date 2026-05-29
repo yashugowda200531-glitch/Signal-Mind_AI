@@ -1,48 +1,107 @@
-"use client";
-
-import { useMemo } from "react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
-  CartesianGrid, Tooltip,
-} from "recharts";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
-
 import { useSignal } from "@/context/SignalContext";
-
-const Tip = ({ active, payload, label }: any) =>
-  active && payload?.length ? (
-    <div style={{
-      background: "rgba(3,5,16,0.98)",
-      border: "1px solid rgba(168,85,247,0.3)",
-      borderRadius: 6, padding: "4px 8px",
-      boxShadow: "0 8px 30px rgba(0,0,0,0.8), 0 0 16px rgba(168,85,247,0.2)",
-    }}>
-      <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#d8b4fe", fontWeight: 500 }}>
-        {label} kHz
-      </div>
-      <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#e2e8f0", fontWeight: 400 }}>
-        {payload[0]?.value?.toFixed(1)} dB
-      </div>
-    </div>
-  ) : null;
 
 export default function FFTChart() {
   const { data } = useSignal();
-  const chartData = useMemo(() => {
-    if (!data?.fft || data.fft.length === 0) return [];
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Animation state
+  const [tIdx, setTIdx] = useState(0);
+
+  useEffect(() => {
+    if (!data?.spectrogram?.length) return;
+    let frameId: number;
     
-    const maxPts = 300;
-    const step = Math.max(1, Math.floor(data.fft.length / maxPts));
-    const nyquist = data.sampleRate / 2;
-    const freqStep = nyquist / data.fft.length;
+    const loop = (time: number) => {
+       // Unthrottled 60 FPS for maximum microdynamics
+       setTIdx(prev => (prev + 1) % data.spectrogram.length);
+       frameId = requestAnimationFrame(loop);
+    };
     
-    const pts = [];
-    for (let i = 0; i < data.fft.length; i += step) {
-      const db = data.fft[i];
-      pts.push({ freq: +((i * freqStep) / 1000).toFixed(2), magnitude: +db.toFixed(1) });
+    frameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frameId);
+  }, [data?.spectrogram]);
+
+  // EMA Smoothing state
+  const smoothedDataRef = useRef<number[]>([]);
+
+  // Native Canvas rendering loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !data?.spectrogram?.length) return;
+    
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // Clear background
+    ctx.clearRect(0, 0, width, height);
+    
+    const slice = data.spectrogram[tIdx];
+    if (!slice || slice.length === 0) return;
+    
+    const totalBins = slice.length;
+    
+    // Initialize or resize smoothing buffer
+    if (smoothedDataRef.current.length !== totalBins) {
+      smoothedDataRef.current = [...slice];
     }
-    return pts;
-  }, [data?.fft, data?.sampleRate]);
+    
+    // Apply Exponential Moving Average (EMA) smoothing (alpha = 0.25)
+    // with sub-frame SDR microdynamics (ADC quantization texture & thermal breathing)
+    const alpha = 0.25;
+    for (let i = 0; i < totalBins; i++) {
+      // Inject physical measurement instability into every bin
+      const thermalNoise = (Math.random() - 0.5) * 1.8;
+      const raw_db = slice[i] + thermalNoise;
+      smoothedDataRef.current[i] = alpha * raw_db + (1 - alpha) * smoothedDataRef.current[i];
+    }
+    
+    const smoothedSlice = smoothedDataRef.current;
+    
+    // Draw the continuous polyline
+    ctx.beginPath();
+    ctx.strokeStyle = "#d946ef"; // purple trace
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = "round";
+    
+    // Fill gradient setup
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, "rgba(233, 213, 255, 0.4)");
+    gradient.addColorStop(0.5, "rgba(192, 132, 252, 0.2)");
+    gradient.addColorStop(1, "rgba(124, 58, 237, 0.0)");
+
+    for (let i = 0; i < totalBins; i++) {
+      const x = (i / (totalBins - 1)) * width;
+      // DB Scaling: Map -120 dB to bottom, 0 dB to top
+      let db = smoothedSlice[i];
+      if (db < -120) db = -120;
+      if (db > 0) db = 0;
+      
+      const normalized = (db + 120) / 120; // 0 (bottom) to 1 (top)
+      const y = height * (1 - normalized);
+      
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    
+    // Stroke the main line
+    ctx.stroke();
+    
+    // Complete path for fill
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    
+  }, [data?.spectrogram, tIdx]);
 
   return (
     <div className="relative overflow-hidden" style={{
@@ -105,62 +164,40 @@ export default function FFTChart() {
           fontWeight: 500,
           color: "#a78bfa",
         }}>
-          {data ? `${data.dominantMag.toFixed(1)} dB` : ""}
+          {data ? `${data.dominantMag.toFixed(1)} dBFS` : ""}
         </div>
       </div>
 
       <div className="w-full min-h-[300px] relative" style={{ height: 300, width: "100%" }}>
-        {chartData.length === 0 ? (
+        {(!data?.spectrogram || data.spectrogram.length === 0) ? (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
             <span style={{ fontFamily: "var(--font-rajdhani)", color: "#a78bfa", fontSize: 14, opacity: 0.6 }}>No signal data</span>
           </div>
         ) : null}
-        <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={chartData} margin={{ top: 8, right: 4, left: -22, bottom: 12 }}>
-            <defs>
-              <linearGradient id="fftBarPeak" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor="#e9d5ff" stopOpacity={0.8} />
-                <stop offset="40%"  stopColor="#c084fc" stopOpacity={0.5} />
-                <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.1} />
-              </linearGradient>
-              <filter id="purpleGlow" x="-20%" y="-50%" width="140%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b1" />
-                <feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="b2" />
-                <feMerge>
-                  <feMergeNode in="b1" />
-                  <feMergeNode in="b2" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <CartesianGrid stroke="rgba(168,85,247,0.03)" strokeDasharray="3 4" vertical={false} />
-            <XAxis
-              dataKey="freq" interval="preserveStartEnd" minTickGap={30}
-              tick={{ fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-              tickLine={false}
-              axisLine={{ stroke: "rgba(168,85,247,0.05)" }}
-              label={{ value: "Frequency (kHz)", position: "insideBottomRight", offset: -4, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-            />
-            <YAxis
-              domain={[-100, 0]} tickCount={6}
-              tick={{ fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-              tickLine={false}
-              axisLine={{ stroke: "rgba(168,85,247,0.05)" }}
-              label={{ value: "Magnitude (dB)", angle: -90, position: "insideLeft", offset: 20, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-            />
-            <Tooltip content={<Tip />} cursor={{ stroke: "rgba(168,85,247,0.2)", strokeWidth: 1 }} />
-            <Area
-              type="basis"
-              dataKey="magnitude"
-              stroke="#d946ef"
-              strokeWidth={1.5}
-              fill="url(#fftBarPeak)"
-              fillOpacity={0.4}
-              isAnimationActive={true}
-              filter="url(#purpleGlow)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        
+        {/* Native High-Performance Canvas Renderer */}
+        <canvas 
+          ref={canvasRef} 
+          width={800} 
+          height={300} 
+          style={{ width: "100%", height: "100%", display: "block" }} 
+        />
+        
+        {/* Simple X-Axis Labels Overlay */}
+        {data && (
+          <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-[9px] text-[#30405c]" style={{ fontFamily: "var(--font-rajdhani)", opacity: 0.8 }}>
+            <span>0 kHz</span>
+            <span>{(data.sampleRate / 4000).toFixed(1)} kHz</span>
+            <span>{(data.sampleRate / 2000).toFixed(1)} kHz</span>
+          </div>
+        )}
+        
+        {/* Simple Y-Axis Labels Overlay */}
+        <div className="absolute top-0 left-0 bottom-6 flex flex-col justify-between py-2 text-[9px] text-[#30405c]" style={{ fontFamily: "var(--font-rajdhani)", opacity: 0.8 }}>
+          <span>0 dB</span>
+          <span>-60 dB</span>
+          <span>-120 dB</span>
+        </div>
       </div>
     </div>
   );

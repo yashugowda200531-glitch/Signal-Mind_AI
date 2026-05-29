@@ -20,42 +20,41 @@ export default function DashboardPage() {
 
   const METRICS = [
     {
-      label: "Signal Quality", value: data ? data.quality.toFixed(1) : "--", unit: "%",
-      status: data && data.quality > 80 ? "Excellent" : (data && data.quality > 50 ? "Good" : "Poor"), 
-      statusColor: data && data.quality > 80 ? "#22c55e" : (data && data.quality > 50 ? "#f59e0b" : "#ef4444"),
-      icon: <Activity style={{ width: 13, height: 13, color: data && data.quality > 80 ? "#22c55e" : (data && data.quality > 50 ? "#f59e0b" : "#ef4444") }} strokeWidth={2} />,
-      glowColor: data && data.quality > 80 ? "#22c55e" : (data && data.quality > 50 ? "#f59e0b" : "#ef4444"),
+      label: "Spectral Centroid", value: data ? (data.spectralCentroid || data.dominantFreq).toFixed(2) : "--", unit: "kHz",
+      status: data ? "Measured" : "Scanning...", statusColor: "#00d4ff",
+      icon: <Wifi style={{ width: 13, height: 13, color: "#00d4ff" }} strokeWidth={2} />,
+      glowColor: "#00d4ff",
     },
     {
       label: "SNR", value: data ? data.snr.toFixed(1) : "--", unit: "dB",
-      status: data && data.snr > 20 ? "Excellent" : "Good", 
+      status: data ? "Measured" : "--",
       statusColor: "#f59e0b",
       icon: <BarChart3 style={{ width: 13, height: 13, color: "#f59e0b" }} strokeWidth={2} />,
       glowColor: "#f59e0b",
     },
     {
-      label: "Dominant Frequency", value: data ? data.dominantFreq.toFixed(2) : "--", unit: "kHz",
-      status: data ? "Detected" : "Scanning...", statusColor: "#00d4ff",
-      icon: <Wifi style={{ width: 13, height: 13, color: "#00d4ff" }} strokeWidth={2} />,
-      glowColor: "#00d4ff",
-    },
-    {
-      label: "Bandwidth", value: data ? data.bandwidth.toFixed(2) : "--", unit: "kHz",
-      status: "Estimated", statusColor: "#a855f7",
-      icon: <Radio style={{ width: 13, height: 13, color: "#a855f7" }} strokeWidth={2} />,
-      glowColor: "#a855f7",
-    },
-    {
-      label: "Signal Power", value: data ? data.power.toFixed(1) : "--", unit: "dBm",
+      label: "RMS Power", value: data ? (data.rmsPower || data.power).toFixed(1) : "--", unit: "dBFS",
       status: "Measured", statusColor: "#22c55e",
       icon: <Zap style={{ width: 13, height: 13, color: "#22c55e" }} strokeWidth={2} />,
       glowColor: "#22c55e",
     },
     {
-      label: "Data Rate", value: data ? data.dataRate.toFixed(1) : "--", unit: "kbps",
-      status: data ? "Shannon est." : "--", statusColor: "#4a5f82",
-      icon: <TrendingUp style={{ width: 13, height: 13, color: "#00d4ff" }} strokeWidth={2} />,
-      glowColor: "#00d4ff",
+      label: "Occupied BW", value: data ? data.bandwidth.toFixed(2) : "--", unit: "kHz",
+      status: "90% energy", statusColor: "#a855f7",
+      icon: <Radio style={{ width: 13, height: 13, color: "#a855f7" }} strokeWidth={2} />,
+      glowColor: "#a855f7",
+    },
+    {
+      label: "Spectral Flatness", value: data ? data.spectralFlatness.toFixed(3) : "--", unit: "",
+      status: data ? "Wiener entropy" : "--", statusColor: "#4a5f82",
+      icon: <Activity style={{ width: 13, height: 13, color: "#22c55e" }} strokeWidth={2} />,
+      glowColor: "#22c55e",
+    },
+    {
+      label: "Crest Factor", value: data ? (data.crestFactor || 0).toFixed(1) : "--", unit: "dB",
+      status: data ? "Peak/RMS" : "--", statusColor: "#4a5f82",
+      icon: <TrendingUp style={{ width: 13, height: 13, color: "#f59e0b" }} strokeWidth={2} />,
+      glowColor: "#f59e0b",
     },
   ];
 

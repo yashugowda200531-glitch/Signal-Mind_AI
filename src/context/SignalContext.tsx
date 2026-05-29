@@ -41,6 +41,15 @@ export interface SignalData {
   voiceConfidence: number;
   rawFft: number[];
   peaks: PeakInfo[];
+  spectralCentroid: number;
+  fundamentalFreq: number;
+  rmsPower: number;
+  spectralEntropy: number;
+  zeroCrossingRate: number;
+  spectralRolloff: number;
+  crestFactor: number;
+  noiseFloor: number;
+  spectrogram: number[][];
 }
 
 interface SignalContextProps {
@@ -99,6 +108,15 @@ export function SignalProvider({ children }: { children: ReactNode }) {
       const signalType = backendData.signalType || "Unclassified";
       const confidence = backendData.confidence || 0;
       const voiceConfidence = backendData.voiceConfidence || 0;
+      const spectralCentroid = backendData.spectralCentroid || 0;
+      const fundamentalFreq = backendData.fundamentalFreq || 0;
+      const rmsPower = backendData.rmsPower || -100;
+      const spectralEntropy = backendData.spectralEntropy || 0;
+      const zeroCrossingRate = backendData.zeroCrossingRate || 0;
+      const spectralRolloff = backendData.spectralRolloff || 0;
+      const crestFactor = backendData.crestFactor || 0;
+      const noiseFloor = backendData.noiseFloor || -100;
+      const spectrogram = backendData.spectrogram || [];
 
       // ── Signal Quality: from Backend ──
       const quality = backendData.signalQuality || 0;
@@ -128,6 +146,15 @@ export function SignalProvider({ children }: { children: ReactNode }) {
         voiceConfidence: +voiceConfidence.toFixed(1),
         rawFft: rawFft,
         peaks,
+        spectralCentroid: +spectralCentroid.toFixed(2),
+        fundamentalFreq: +fundamentalFreq.toFixed(2),
+        rmsPower: +rmsPower.toFixed(1),
+        spectralEntropy: +spectralEntropy.toFixed(4),
+        zeroCrossingRate: +zeroCrossingRate.toFixed(4),
+        spectralRolloff: +spectralRolloff.toFixed(2),
+        crestFactor: +crestFactor.toFixed(2),
+        noiseFloor: +noiseFloor.toFixed(1),
+        spectrogram,
       };
 
       setData(newAnalysis);

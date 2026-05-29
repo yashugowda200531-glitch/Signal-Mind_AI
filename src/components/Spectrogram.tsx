@@ -41,70 +41,65 @@ export default function Spectrogram() {
     canvas.height = drawH;
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
-    // We will simulate a rolling STFT by holding a history matrix
-    // size: [drawW] columns, each column is [drawH] pixels
-    // To make it fast, we can draw columns and shift image data.
-    
-    // Initialize empty black canvas
-    ctx.fillStyle = "rgb(0,0,128)";
+    // Fill background
+    ctx.fillStyle = "rgb(0,0,32)";
     ctx.fillRect(0, 0, drawW, drawH);
 
-    let tOffset = 0;
+    let tIdx = 0;
+    let lastTime = 0;
 
-    let maxFFT = 1;
-    if (data?.fft) {
-      maxFFT = Math.max(...data.fft) || 1;
-    }
+    const renderLoop = (time: number) => {
+      // Shift everything DOWN by 1 pixel with SDR Waterfall temporal fading (energy smearing)
+      ctx.globalAlpha = 0.96; // Persistence memory multiplier
+      ctx.drawImage(canvas, 0, 0, drawW, drawH - 1, 0, 1, drawW, drawH - 1);
+      
+      // Apply slight background washout to simulate analog signal decay
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = "rgb(0,0,32)";
+      ctx.fillRect(0, 1, drawW, drawH - 1);
+      
+      ctx.globalAlpha = 1.0; // Reset for new row
 
-    const renderLoop = () => {
-      // Shift everything left by 1 pixel
-      const imgData = ctx.getImageData(1, 0, drawW - 1, drawH);
-      ctx.putImageData(imgData, 0, 0);
+      // Draw the new row on the top edge (y=0)
+      const newRow = ctx.createImageData(drawW, 1);
+      const d = newRow.data;
 
-      // Draw the new column on the right edge
-      const newCol = ctx.createImageData(1, drawH);
-      const d = newCol.data;
+      if (data && data.spectrogram && data.spectrogram.length > 0) {
+        // Unthrottled 60FPS SDR waterfall update
+        tIdx = (tIdx + 1) % data.spectrogram.length;
+        
+        const row = data.spectrogram[tIdx];
+        const fBins = row.length;
 
-      for (let y = 0; y < drawH; y++) {
-        const freqRatio = 1 - y / drawH; // 0 to 1
-        let power = 0;
-
-        if (data && data.fft && data.fft.length > 0) {
-          const fftIndex = Math.floor(freqRatio * data.fft.length);
-          const rawMag = data.fft[fftIndex] || -100;
-          // data.fft is now in dBFS [-100, 0]
-          // Improve contrast: ignore bottom -80 to -100
-          let scaled = (rawMag + 80) / 80;
-          scaled = Math.pow(Math.max(0, scaled), 1.5);
+        for (let x = 0; x < drawW; x++) {
+          const fIdx = Math.floor((x / drawW) * fBins);
+          const rawMag = row[fIdx] || -120;
           
-          power = Math.min(1, scaled + Math.random() * 0.03);
-          if (Math.abs(freqRatio - (data.dominantFreq / (data.sampleRate/2000))) < 0.02) {
-             power = Math.min(1, power + 0.1);
-          }
-        } else {
-          // Idle state noise
-          power = Math.random() * 0.05;
-          if (freqRatio < 0.2) power += 0.1 * Math.sin(tOffset * 0.05);
-          if (Math.abs(freqRatio - 0.5) < 0.01) power += 0.2 * (Math.random() > 0.8 ? 1 : 0);
+          let scaled = (rawMag + 90) / 80;
+          scaled = Math.max(0, Math.min(1, scaled));
+          // Contrast curve for heatmap
+          scaled = scaled < 0.5 ? 2 * scaled * scaled : 1 - 2 * (1 - scaled) * (1 - scaled);
+          
+          const [r, g, b] = jet(scaled);
+          
+          const idx = x * 4;
+          d[idx] = r; d[idx+1] = g; d[idx+2] = b; d[idx+3] = 255;
         }
-
-        const [r, g, b] = jet(Math.max(0, Math.min(1, power)));
-        const idx = y * 4;
-        d[idx] = r; d[idx+1] = g; d[idx+2] = b; d[idx+3] = 255;
+      } else {
+        // Idle state: dark
+        for (let x = 0; x < drawW; x++) {
+          const idx = x * 4;
+          d[idx] = 0; d[idx+1] = 0; d[idx+2] = 32; d[idx+3] = 255;
+        }
       }
 
-      ctx.putImageData(newCol, drawW - 1, 0);
-      tOffset++;
-
-      // If we have data, we animate faster to show "processing", then slow down
+      ctx.putImageData(newRow, 0, 0);
       animationFrameId = requestAnimationFrame(renderLoop);
     };
 
-    renderLoop();
+    animationFrameId = requestAnimationFrame(renderLoop);
 
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
+    return () => cancelAnimationFrame(animationFrameId);
   }, [data]);
 
   return (
@@ -145,20 +140,17 @@ export default function Spectrogram() {
 
       {/* Chart area with axes */}
       <div className="flex gap-1.5 mt-2 w-full h-full min-h-[320px]" style={{ minHeight: 320 }}>
-        {/* Y-axis labels */}
+        {/* Y-axis labels (Time history) */}
         <div className="flex flex-col justify-between items-end" style={{ width: 24, paddingBottom: 16, paddingTop: 0 }}>
-          {(() => {
-            const nyq = data ? data.sampleRate / 2000 : 20;
-            return [nyq, nyq * 0.75, nyq * 0.5, nyq * 0.25, 0].map((v) => (
-              <span key={v} style={{
-                fontFamily: "var(--font-rajdhani)",
-                fontSize: 8.5, color: "#30405c", fontWeight: 400,
-              }}>{v.toFixed(v >= 10 ? 0 : 1)}</span>
-            ));
-          })()}
+          {["0", "-2s", "-4s", "-6s", "-8s"].map((v) => (
+            <span key={v} style={{
+              fontFamily: "var(--font-rajdhani)",
+              fontSize: 8.5, color: "#30405c", fontWeight: 400,
+            }}>{v}</span>
+          ))}
         </div>
 
-        {/* Canvas + X-axis */}
+        {/* Canvas + X-axis (Frequency) */}
         <div className="flex-1 flex flex-col h-full">
           <div className="relative flex-1 h-full min-h-[280px]">
             <canvas
@@ -167,14 +159,14 @@ export default function Spectrogram() {
                 width: "100%", height: "100%",
                 borderRadius: 4, display: "block",
                 boxShadow: "0 0 20px rgba(0,212,255,0.08)",
-                filter: "contrast(1.1) brightness(1.1)",
+                filter: "contrast(1.05) brightness(1.05)",
               }}
             />
           </div>
           <div className="flex justify-between" style={{ marginTop: 2, paddingLeft: 2, paddingRight: 2 }}>
             {(() => {
-              const dur = data ? data.duration : 2;
-              return [0, dur * 0.25, dur * 0.5, dur * 0.75, dur].map((v) => (
+              const nyq = data ? data.sampleRate / 2000 : 20;
+              return [0, nyq * 0.25, nyq * 0.5, nyq * 0.75, nyq].map((v) => (
                 <span key={v} style={{
                   fontFamily: "var(--font-rajdhani)",
                   fontSize: 8.5, color: "#30405c", fontWeight: 400,
@@ -186,7 +178,7 @@ export default function Spectrogram() {
             fontFamily: "var(--font-rajdhani)",
             fontSize: 8.5, color: "#30405c", fontWeight: 400, marginTop: 0,
           }}>
-            Time (s)
+            Frequency (kHz)
           </div>
         </div>
 

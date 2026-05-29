@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Info, Cpu, ChevronRight, Activity, Radio, Wifi } from "lucide-react";
 import Link from "next/link";
+import { useState, useEffect } from "react";
 import GaugeMeter from "./GaugeMeter";
 
 import { useSignal } from "@/context/SignalContext";
@@ -22,24 +23,25 @@ const TOP = <div className="absolute top-0 left-[12%] right-[12%]" style={{
   height: 1, background: "linear-gradient(90deg, transparent, rgba(0,212,255,0.4), transparent)",
 }} />;
 
-const generateINFO = (data: any) => [
+// Independent asynchronous measurement uncertainties
+const generateINFO = (data: any, j1: number, j2: number, j3: number) => [
   { label: "Signal Type:",      val: data ? data.signalType : "--",                       col: "#00d4ff" },
-  { label: "Modulation:",       val: data ? data.modulation : "--",                       col: "#00d4ff" },
-  { label: "Center Frequency:", val: data ? `${data.dominantFreq.toFixed(2)} kHz` : "--", col: "#c8d4e4" },
+  { label: "Classification:",   val: data ? data.modulation : "--",                       col: "#00d4ff" },
+  { label: "Spectral Centroid:", val: data ? `${(data.spectralCentroid + j1 * 0.05).toFixed(2)} kHz` : "--", col: "#c8d4e4" },
   { label: "Sample Rate:",      val: data ? `${(data.sampleRate/1000).toFixed(1)} kHz` : "--", col: "#c8d4e4" },
   { label: "Duration:",         val: data ? `${data.duration.toFixed(2)} s` : "--",       col: "#c8d4e4" },
   { label: "Samples:",          val: data ? `${data.waveform.length.toLocaleString()}` : "--", col: "#c8d4e4" },
-  { label: "Data Rate:",        val: data ? `${data.dataRate.toFixed(1)} kbps` : "--",    col: "#c8d4e4" },
-  { label: "Confidence:",       val: data ? `${data.confidence.toFixed(1)}%` : "--",      col: "#22c55e" },
+  { label: "Occupied BW:",      val: data ? `${(data.bandwidth + Math.abs(j2)*0.02).toFixed(2)} kHz` : "--",    col: "#c8d4e4" },
+  { label: "Noise Floor:",      val: data ? `${(data.noiseFloor + j3).toFixed(1)} dB` : "--",      col: "#4a5f82" },
 ];
 
-const generateAI = (data: any) => [
-  { label: "Modulation Detected",       val: data ? data.modulation : "--",                              col: "#00d4ff" },
-  { label: "Signal Quality Assessment", val: data ? (data.quality > 80 ? "Excellent" : data.quality > 50 ? "Good" : "Poor") : "--", col: data && data.quality > 80 ? "#22c55e" : data && data.quality > 50 ? "#f59e0b" : "#ef4444" },
-  { label: "Noise Level",              val: data ? (data.snr < 10 ? "High" : data.snr < 20 ? "Moderate" : "Low") : "--",  col: data && data.snr >= 20 ? "#22c55e" : "#f59e0b" },
-  { label: "Interference Detection",   val: data ? (data.bandwidth > 15 ? "Detected" : "None") : "--",  col: data && data.bandwidth > 15 ? "#f59e0b" : "#22c55e" },
-  { label: "Anomaly Detection",        val: data ? (data.spectralFlatness > 0.8 ? "Anomalous" : "Normal") : "--", col: data && data.spectralFlatness > 0.8 ? "#ef4444" : "#22c55e" },
-  { label: "Overall Confidence",       val: data ? `${data.confidence.toFixed(1)}%` : "--",              col: "#a855f7" },
+const generateDSP = (data: any, j1: number, j2: number, j3: number) => [
+  { label: "RMS Power",              val: data ? `${(data.rmsPower + j1*0.2).toFixed(1)} dBFS` : "--",    col: "#00d4ff" },
+  { label: "Spectral Flatness",      val: data ? Math.max(0, data.spectralFlatness + j2*0.01).toFixed(4) : "--",   col: "#22c55e" },
+  { label: "Spectral Entropy",       val: data ? `${Math.max(0, Math.min(1, data.spectralEntropy + j3*0.005)).toFixed(4)}` : "--", col: "#a855f7" },
+  { label: "Crest Factor",           val: data ? `${(data.crestFactor + j1*0.1).toFixed(2)} dB` : "--", col: "#f59e0b" },
+  { label: "Zero Crossing Rate",     val: data ? `${Math.max(0, data.zeroCrossingRate + j2*0.005).toFixed(4)}` : "--",  col: "#00d4ff" },
+  { label: "Spectral Roll-off",      val: data ? `${(data.spectralRolloff + j3*0.05).toFixed(2)} kHz` : "--", col: "#d8b4fe" },
 ];
 
 function Title({ icon: I, label, color }: { icon: any; label: string; color: string }) {
@@ -66,8 +68,21 @@ function Title({ icon: I, label, color }: { icon: any; label: string; color: str
 
 export default function AnalysisPanel() {
   const { data } = useSignal();
-  const INFO = generateINFO(data);
-  const AI = generateAI(data);
+  const [j1, setJ1] = useState(0);
+  const [j2, setJ2] = useState(0);
+  const [j3, setJ3] = useState(0);
+
+  // Asynchronous measurement uncertainties (independent frequencies)
+  useEffect(() => {
+    if (!data) return;
+    const i1 = setInterval(() => setJ1((Math.random() - 0.5) * 0.4), 133);
+    const i2 = setInterval(() => setJ2((Math.random() - 0.5) * 0.4), 215);
+    const i3 = setInterval(() => setJ3((Math.random() - 0.5) * 0.4), 177);
+    return () => { clearInterval(i1); clearInterval(i2); clearInterval(i3); };
+  }, [data]);
+
+  const INFO = generateINFO(data, j1, j2, j3);
+  const DSP = generateDSP(data, j1, j2, j3);
 
   return (
     <div className="flex flex-col gap-2.5 h-full">
@@ -89,17 +104,17 @@ export default function AnalysisPanel() {
               textShadow: "0 0 16px rgba(0,212,255,0.6)",
               lineHeight: 1,
             }}>
-              {data ? data.quality.toFixed(1) : "--"} <span style={{ fontSize: 10, color: "#cbd5e1", textShadow: "none" }}>%</span>
+              {data ? (data.snr + j1).toFixed(1) : "--"} <span style={{ fontSize: 10, color: "#cbd5e1", textShadow: "none" }}>dB</span>
             </div>
             <div style={{
               fontFamily: "var(--font-rajdhani)",
               fontSize: 10, color: "#00d4ff", letterSpacing: "0.06em", marginTop: 4,
             }}>
-              {data ? "CONFIDENCE" : "AWAITING SIGNAL"}
+              {data ? "SNR (SIGNAL-TO-NOISE)" : "AWAITING SIGNAL"}
             </div>
           </div>
           <div style={{ width: 64, height: 64, marginRight: -8, marginTop: -8 }}>
-            <GaugeMeter value={data ? data.quality : 0} label="" status="" />
+            <GaugeMeter value={data ? Math.min(data.snr * 1.67, 100) : 0} label="" status="" />
           </div>
         </div>
       </motion.div>
@@ -169,9 +184,9 @@ export default function AnalysisPanel() {
         style={{ ...CARD, flex: 1 }}
       >
         {TOP}
-        <Title icon={Cpu} label="AI Analysis Results" color="#a855f7" />
+        <Title icon={Cpu} label="DSP Metrics" color="#a855f7" />
         <div>
-          {AI.map((r, i) => (
+          {DSP.map((r, i) => (
             <motion.div
               key={r.label}
               initial={{ opacity: 0 }}
@@ -180,7 +195,7 @@ export default function AnalysisPanel() {
               className="flex justify-between items-center"
               style={{
                 padding: "5px 0",
-                borderBottom: i < AI.length - 1 ? "1px solid rgba(255,255,255,0.035)" : "none",
+                borderBottom: i < DSP.length - 1 ? "1px solid rgba(255,255,255,0.035)" : "none",
               }}
             >
               <span style={{

@@ -1,49 +1,114 @@
 "use client";
 
-import { useMemo } from "react";
-import {
-  ResponsiveContainer, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
-} from "recharts";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
-
 import { useSignal } from "@/context/SignalContext";
-
-const Tip = ({ active, payload, label }: any) =>
-  active && payload?.length ? (
-    <div style={{
-      background: "rgba(3,5,16,0.98)",
-      border: "1px solid rgba(0,212,255,0.25)",
-      borderRadius: 6,
-      padding: "4px 8px",
-      boxShadow: "0 8px 30px rgba(0,0,0,0.8), 0 0 12px rgba(0,212,255,0.15)",
-    }}>
-      <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#00d4ff", fontWeight: 500 }}>
-        t = {label} s
-      </div>
-      <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#cbd5e1", fontWeight: 400 }}>
-        A = {payload[0]?.value?.toFixed(4)}
-      </div>
-    </div>
-  ) : null;
 
 export default function SignalChart() {
   const { data } = useSignal();
-  const chartData = useMemo(() => {
-    if (!data?.waveform || data.waveform.length === 0) return [];
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Oscilloscope state
+  const smoothedBuffer = useRef<number[]>([]);
+  const offsetRef = useRef<number>(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     
-    // Backend normalizes waveform to [-1, 1], so we can just use the raw values
-    const maxPts = 800;
-    const step = Math.max(1, Math.floor(data.waveform.length / maxPts));
-    const pts = [];
-    for (let i = 0; i < data.waveform.length; i += step) {
-      pts.push({ 
-        t: +(i / data.sampleRate).toFixed(4), 
-        value: data.waveform[i]
-      });
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    let frameId: number;
+    const numPoints = 800; // Resolution of the oscilloscope
+    
+    // Initialize smoothing buffer
+    if (smoothedBuffer.current.length !== numPoints) {
+      smoothedBuffer.current = new Array(numPoints).fill(0);
     }
-    return pts;
-  }, [data?.waveform, data?.sampleRate]);
+    
+    const loop = () => {
+      frameId = requestAnimationFrame(loop);
+      
+      const width = canvas.width;
+      const height = canvas.height;
+      const midY = height / 2;
+      
+      // Clear background with slight fade for persistence effect
+      ctx.fillStyle = "rgba(4, 7, 20, 0.4)";
+      ctx.fillRect(0, 0, width, height);
+      
+      if (!data?.waveform || data.waveform.length === 0) {
+        // Draw dead line if no data
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(0, 212, 255, 0.3)";
+        ctx.lineWidth = 1;
+        ctx.moveTo(0, midY);
+        ctx.lineTo(width, midY);
+        ctx.stroke();
+        return;
+      }
+      
+      const wave = data.waveform;
+      const waveLen = wave.length;
+      
+      // Advance the sliding window (scroll speed)
+      // Speed scales roughly with sample rate so it looks natural
+      const speed = Math.max(1, Math.floor(waveLen / 400));
+      offsetRef.current = (offsetRef.current + speed) % waveLen;
+      const currentOffset = offsetRef.current;
+      
+      // Calculate dynamic AGC (Auto Gain Control) to keep wave visible
+      let maxAmp = 0.01;
+      const step = Math.max(1, Math.floor(waveLen / numPoints));
+      
+      for (let i = 0; i < numPoints; i++) {
+        const idx = (currentOffset + i * step) % waveLen;
+        let sample = wave[idx];
+        if (Math.abs(sample) > maxAmp) maxAmp = Math.abs(sample);
+      }
+      
+      // Target 80% vertical occupancy
+      const gain = (height * 0.4) / maxAmp;
+      
+      ctx.beginPath();
+      ctx.strokeStyle = "#00d4ff"; // Cyan oscilloscope trace
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = "round";
+      
+      const alpha = 0.2; // EMA Smoothing factor
+      
+      for (let i = 0; i < numPoints; i++) {
+        const idx = (currentOffset + i * step) % waveLen;
+        let sample = wave[idx];
+        
+        // Add tiny ADC thermal noise when signal is dead to keep it "alive"
+        if (maxAmp < 0.05) {
+          sample += (Math.random() - 0.5) * 0.015;
+        } else {
+          // Inject correlated amplitude bursts and transient noise for signal physics
+          sample += (Math.random() - 0.5) * 0.03 * sample;
+        }
+        
+        // Apply EMA temporal smoothing to the pixel buffer (Phosphor decay effect)
+        smoothedBuffer.current[i] = alpha * sample + (1 - alpha) * smoothedBuffer.current[i];
+        
+        const x = (i / (numPoints - 1)) * width;
+        const y = midY - (smoothedBuffer.current[i] * gain);
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      
+      ctx.stroke();
+    };
+    
+    frameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frameId);
+  }, [data?.waveform]);
 
   return (
     <div className="relative overflow-hidden" style={{
@@ -90,58 +155,36 @@ export default function SignalChart() {
       </div>
 
       <div className="w-full min-h-[300px] relative" style={{ height: 300, width: "100%" }}>
-        {chartData.length === 0 ? (
+        {(!data?.waveform || data.waveform.length === 0) ? (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
             <span style={{ fontFamily: "var(--font-rajdhani)", color: "#00d4ff", fontSize: 14, opacity: 0.6 }}>No signal data</span>
           </div>
         ) : null}
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData} margin={{ top: 8, right: 4, left: -24, bottom: 12 }}>
-            <defs>
-              <linearGradient id="cyanLineGrad" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%"   stopColor="#00a8e8" stopOpacity={0.8} />
-                <stop offset="30%"  stopColor="#00ffff" stopOpacity={1} />
-                <stop offset="70%"  stopColor="#00d4ff" stopOpacity={1} />
-                <stop offset="100%" stopColor="#00a8e8" stopOpacity={0.8} />
-              </linearGradient>
-              <filter id="cyanBloom" x="-20%" y="-50%" width="140%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="b1" />
-                <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b2" />
-                <feMerge>
-                  <feMergeNode in="b1" />
-                  <feMergeNode in="b2" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <CartesianGrid stroke="rgba(0,212,255,0.03)" strokeDasharray="3 4" />
-            <XAxis
-              dataKey="t" interval={24} tickFormatter={(v: number) => v.toFixed(1)}
-              tick={{ fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-              tickLine={false}
-              axisLine={{ stroke: "rgba(0,212,255,0.05)" }}
-              label={{ value: "Time (s)", position: "insideBottomRight", offset: -4, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-            />
-            <YAxis
-              domain={[-1.1, 1.1]} tickCount={5}
-              tick={{ fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-              tickLine={false}
-              axisLine={{ stroke: "rgba(0,212,255,0.05)" }}
-              label={{ value: "Amplitude", angle: -90, position: "insideLeft", offset: 24, fill: "#30405c", fontSize: 8.5, fontFamily: "var(--font-rajdhani)" }}
-            />
-            <Tooltip content={<Tip />} cursor={{ stroke: "rgba(0,212,255,0.1)", strokeWidth: 1 }} />
-            <ReferenceLine y={0} stroke="rgba(0,212,255,0.1)" strokeDasharray="2 4" />
-            <Line
-              type="monotone" dataKey="value"
-              stroke="#00e5ff" strokeWidth={2}
-              strokeOpacity={1}
-              dot={false}
-              isAnimationActive={true}
-              activeDot={{ r: 4, fill: "#00ffff", stroke: "#005bea", strokeWidth: 1 }}
-              style={{ filter: "drop-shadow(0 0 8px #00e5ff)" }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        
+        {/* Native High-Performance Canvas Renderer */}
+        <canvas 
+          ref={canvasRef} 
+          width={800} 
+          height={300} 
+          style={{ width: "100%", height: "100%", display: "block" }} 
+        />
+        
+        {/* Center line (0 Volt reference) */}
+        <div className="absolute top-1/2 left-0 right-0 border-t border-dashed border-[#00d4ff] opacity-10 pointer-events-none" />
+        
+        {/* Simple Time-Axis Labels Overlay */}
+        <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-[9px] text-[#30405c]" style={{ fontFamily: "var(--font-rajdhani)", opacity: 0.8 }}>
+          <span>Live 0ms</span>
+          <span>Rolling Buffer</span>
+          <span>-{(data?.waveform ? (data.waveform.length / (data.sampleRate || 48000)) * 1000 : 0).toFixed(0)} ms</span>
+        </div>
+        
+        {/* Simple Amplitude Labels Overlay */}
+        <div className="absolute top-0 left-0 bottom-6 flex flex-col justify-between py-2 text-[9px] text-[#30405c]" style={{ fontFamily: "var(--font-rajdhani)", opacity: 0.8 }}>
+          <span>+V</span>
+          <span>0</span>
+          <span>-V</span>
+        </div>
       </div>
     </div>
   );

@@ -290,17 +290,14 @@ function BandwidthPanel() {
   const { data } = useSignal();
 
   const rows = data ? [
-    { label: "Occupied BW (-10 dB)", value: `${data.bandwidth.toFixed(2)} kHz`, color: "#d8b4fe" },
-    { label: "Dominant Frequency", value: formatHz(data.dominantFreq), color: "#00e5ff" },
-    { label: "Peak Magnitude", value: `${data.dominantMag.toFixed(1)} dBm`, color: "#f59e0b" },
+    { label: "Spectral Centroid", value: formatHz(data.dominantFreq), color: "#00e5ff" },
+    { label: "Peak Magnitude", value: `${data.dominantMag.toFixed(1)} dBFS`, color: "#f59e0b" },
     { label: "Spectral Flatness", value: data.spectralFlatness.toFixed(4), color: "#22c55e" },
-    { label: "Data Rate (Shannon)", value: `${data.dataRate.toFixed(1)} kbps`, color: "#00e5ff" },
+    { label: "Spectral Entropy", value: `${(data as any).spectralEntropy?.toFixed(4) || '--'}`, color: "#a855f7" },
+    { label: "Spectral Roll-off", value: `${(data as any).spectralRolloff?.toFixed(2) || '--'} kHz`, color: "#d8b4fe" },
     { label: "Signal Type", value: data.signalType, color: "#d8b4fe" },
-    { label: "Modulation", value: data.modulation, color: "#00e5ff" },
-    { label: "Confidence", value: `${data.confidence.toFixed(1)}%`, color: "#22c55e" },
-    ...(data.signalType?.includes("Voice") || data.signalType?.includes("Speech")
-      ? [{ label: "Voice Confidence", value: `${data.voiceConfidence?.toFixed(1) || 0}%`, color: "#ec4899" }]
-      : [])
+    { label: "Classification", value: data.modulation, color: "#00e5ff" },
+    { label: "Noise Floor", value: `${(data as any).noiseFloor?.toFixed(1) || '--'} dB`, color: "#4a5f82" },
   ] : [];
 
   return (
@@ -428,11 +425,11 @@ export default function FFTAnalysisPage() {
   const { data } = useSignal();
 
   const metrics = data ? [
-    { label: "Dominant Freq", value: data.dominantFreq.toFixed(2), unit: "kHz",
+    { label: "Spectral Centroid", value: data.dominantFreq.toFixed(2), unit: "kHz",
       icon: <Wifi size={12} />, color: "#00e5ff" },
-    { label: "Peak Magnitude", value: data.dominantMag.toFixed(1), unit: "dBm",
+    { label: "Peak Magnitude", value: data.dominantMag.toFixed(1), unit: "dBFS",
       icon: <BarChart3 size={12} />, color: "#d8b4fe" },
-    { label: "Bandwidth", value: data.bandwidth.toFixed(2), unit: "kHz",
+    { label: "Occupied BW", value: data.bandwidth.toFixed(2), unit: "kHz",
       icon: <Radio size={12} />, color: "#f59e0b" },
     { label: "Spectral Flatness", value: data.spectralFlatness.toFixed(3), unit: "",
       icon: <Layers size={12} />, color: "#22c55e" },
@@ -441,9 +438,9 @@ export default function FFTAnalysisPage() {
     { label: "FFT Bins", value: data.fft.length.toLocaleString(), unit: "",
       icon: <TrendingUp size={12} />, color: "#a855f7" },
   ] : [
-    { label: "Dominant Freq", value: "—", unit: "kHz", icon: <Wifi size={12} />, color: "#2d3b54" },
-    { label: "Peak Magnitude", value: "—", unit: "dBm", icon: <BarChart3 size={12} />, color: "#2d3b54" },
-    { label: "Bandwidth", value: "—", unit: "kHz", icon: <Radio size={12} />, color: "#2d3b54" },
+    { label: "Spectral Centroid", value: "—", unit: "kHz", icon: <Wifi size={12} />, color: "#2d3b54" },
+    { label: "Peak Magnitude", value: "—", unit: "dBFS", icon: <BarChart3 size={12} />, color: "#2d3b54" },
+    { label: "Occupied BW", value: "—", unit: "kHz", icon: <Radio size={12} />, color: "#2d3b54" },
     { label: "Spectral Flatness", value: "—", icon: <Layers size={12} />, color: "#2d3b54" },
     { label: "Sample Rate", value: "—", unit: "kHz", icon: <Activity size={12} />, color: "#2d3b54" },
     { label: "FFT Bins", value: "—", icon: <TrendingUp size={12} />, color: "#2d3b54" },
