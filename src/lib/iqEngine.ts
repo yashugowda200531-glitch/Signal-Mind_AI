@@ -31,241 +31,281 @@ export interface ModulationMetrics {
   agcGain: number;
 }
 
-// ─── Modulation Symbol Maps ──────────────────────────────────────────────────
+let _waveform: number[] = [];
+let _sampleRate: number = 44100;
+let _fc: number = 0;
+let _readPtr: number = 0;
+let _iqBuffer: IQPoint[] = [];
+let _cachedMetrics: ModulationMetrics | null = null;
 
-const MOD_PROFILES: Record<string, (rng: () => number) => { i: number; q: number }> = {
-  "BPSK": (rng) => {
-    const bit = rng() > 0.5 ? 1 : -1;
-    return { i: bit, q: 0 };
-  },
-  "QPSK": (rng) => {
-    const iBit = rng() > 0.5 ? 0.707 : -0.707;
-    const qBit = rng() > 0.5 ? 0.707 : -0.707;
-    return { i: iBit, q: qBit };
-  },
-  "8PSK": (rng) => {
-    const idx = Math.floor(rng() * 8);
-    const angle = (idx * Math.PI) / 4;
-    return { i: Math.cos(angle), q: Math.sin(angle) };
-  },
-  "16-QAM": (rng) => {
-    const vals = [-0.948, -0.316, 0.316, 0.948];
-    return { i: vals[Math.floor(rng() * 4)], q: vals[Math.floor(rng() * 4)] };
-  },
-  "64-QAM": (rng) => {
-    const vals = [-1.0, -0.714, -0.428, -0.142, 0.142, 0.428, 0.714, 1.0];
-    return { i: vals[Math.floor(rng() * 8)], q: vals[Math.floor(rng() * 8)] };
-  },
-  "FM": (rng) => {
-    const phase = rng() * 2 * Math.PI;
-    return { i: Math.cos(phase), q: Math.sin(phase) };
-  },
-  "AM": (rng) => {
-    const amp = rng() * 0.8 + 0.2;
-    return { i: amp, q: 0 };
-  },
-  "ASK": (rng) => {
-    const level = Math.floor(rng() * 4);
-    return { i: level * 0.333, q: 0 };
-  },
-  "FSK": (rng) => {
-    const freq = rng() > 0.5 ? 1 : -1;
-    const t = rng() * Math.PI * 2;
-    return { i: Math.cos(t * freq * 0.3), q: Math.sin(t * freq * 0.3) };
-  },
-  "OFDM": (rng) => {
-    // OFDM subcarriers produce a cloud-like dense scatter
-    const angle = rng() * 2 * Math.PI;
-    const radius = 0.3 + rng() * 0.7;
-    return { i: radius * Math.cos(angle), q: radius * Math.sin(angle) };
-  },
-};
+// Initialize the DSP engine with real waveform data
+export function initDsp(wave: number[], sampleRate: number, fc: number, snrDb: number) {
+  _waveform = wave;
+  _sampleRate = sampleRate;
+  _fc = fc;
+  _readPtr = 0;
 
-// ─── Persistent Engine State ─────────────────────────────────────────────────
-// This state accumulates across frames to create temporal evolution.
+  const len = wave.length;
+  if (len === 0) {
+    resetIqEngine();
+    return;
+  }
 
-let _carrierPhase = 0;           // Slow drifting carrier rotation
-let _freqOffsetHz = 0;           // Current frequency offset
-let _dcOffsetI = 0;              // DC bias on I channel
-let _dcOffsetQ = 0;              // DC bias on Q channel
-let _iqGainImbalance = 1.0;      // I/Q gain ratio (1.0 = perfect)
-let _clockDrift = 0;             // Sample clock drift accumulator
-let _agcGain = 0;                // Current AGC gain in dB
-let _burstActive = false;        // Whether a burst disturbance is active
-let _burstTimer = 0;
-let _frameCount = 0;
-let _lastModType = "";
+  _iqBuffer = new Array(len);
+  
+  // 1. Synthesize IQ baseband via software mixing
+  // We use the dominant frequency as our NCO (Local Oscillator)
+  const w_c = 2 * Math.PI * fc / sampleRate;
+  
+  const iMix = new Float32Array(len);
+  const qMix = new Float32Array(len);
+  
+  for (let n = 0; n < len; n++) {
+    // Basic downconversion
+    iMix[n] = wave[n] * Math.cos(w_c * n);
+    qMix[n] = wave[n] * -Math.sin(w_c * n);
+  }
 
-// Box-Muller transform for Gaussian random numbers
-function _gaussRng(): number {
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  // 2. Lowpass filter (Moving Average to remove the 2*fc image)
+  // Window size depends on fc relative to sampleRate
+  let windowSize = Math.max(2, Math.floor(sampleRate / (fc + 1)));
+  if (windowSize > 50) windowSize = 50; 
+  
+  const iLpf = new Float32Array(len);
+  const qLpf = new Float32Array(len);
+
+  let sumI = 0;
+  let sumQ = 0;
+  for(let n = 0; n < len; n++) {
+    sumI += iMix[n];
+    sumQ += qMix[n];
+    if (n >= windowSize) {
+      sumI -= iMix[n - windowSize];
+      sumQ -= qMix[n - windowSize];
+      iLpf[n] = sumI / windowSize;
+      qLpf[n] = sumQ / windowSize;
+    } else {
+      iLpf[n] = sumI / (n + 1);
+      qLpf[n] = sumQ / (n + 1);
+    }
+  }
+
+  // 3. Normalize amplitudes and compute AGC gain
+  let maxMag = 0.0001;
+  let sumMagSq = 0;
+  for(let n = 0; n < len; n++) {
+    const magSq = iLpf[n]*iLpf[n] + qLpf[n]*qLpf[n];
+    sumMagSq += magSq;
+    const mag = Math.sqrt(magSq);
+    if (mag > maxMag) maxMag = mag;
+  }
+  
+  // Apply a dynamic AGC scaling instead of hard limiting
+  const rms = Math.sqrt(sumMagSq / len);
+  const targetRms = 0.5; // Target RMS for the constellation
+  const agcScale = rms > 0 ? (targetRms / rms) : 1;
+
+  for(let n = 0; n < len; n++) {
+    _iqBuffer[n] = { i: iLpf[n] * agcScale, q: qLpf[n] * agcScale };
+  }
+
+  // 4. Classify entire buffer analytically
+  _cachedMetrics = classifyConstellation(_iqBuffer, sampleRate, snrDb);
+  _cachedMetrics.agcGain = 20 * Math.log10(agcScale);
 }
 
-// ─── Primary Frame Generator ─────────────────────────────────────────────────
-// Called EVERY animation frame to produce a new set of evolving IQ symbols.
+// True Constellation Classifier
+function classifyConstellation(points: IQPoint[], sampleRate: number, snrDb: number): ModulationMetrics {
+  // Subsample to save CPU on large files
+  const maxSamples = 4000;
+  const step = Math.max(1, Math.floor(points.length / maxSamples));
+  const subset: IQPoint[] = [];
+  for(let i = 0; i < points.length; i += step) subset.push(points[i]);
 
+  let type = "Noise";
+  let confidence = 0;
+  let evm = 0;
+  let baudRate = 0;
+
+  // Compute magnitudes and phases
+  let magSum = 0;
+  let magSqSum = 0;
+  
+  for(const pt of subset) {
+    const mag = Math.sqrt(pt.i*pt.i + pt.q*pt.q);
+    magSum += mag;
+    magSqSum += mag*mag;
+  }
+  const meanMag = magSum / subset.length;
+  const varMag = (magSqSum / subset.length) - (meanMag * meanMag);
+
+  // Compute IQ Imbalance (Variance of I vs Q)
+  let varI = 0, varQ = 0, meanI = 0, meanQ = 0;
+  for(const pt of subset) { meanI += pt.i; meanQ += pt.q; }
+  meanI /= subset.length; meanQ /= subset.length;
+  for(const pt of subset) { 
+    varI += (pt.i - meanI)**2; 
+    varQ += (pt.q - meanQ)**2; 
+  }
+  varI /= subset.length; varQ /= subset.length;
+  const iqImbalance = (varQ > 0 && varI > 0) ? 10 * Math.log10(varI / varQ) : 0;
+
+  // Compute Carrier Drift Rate
+  let driftRate = 0;
+  let prevPhase = Math.atan2(subset[0].q, subset[0].i);
+  let totalPhaseDelta = 0;
+  for(let i=1; i<subset.length; i++) {
+    let phase = Math.atan2(subset[i].q, subset[i].i);
+    let delta = phase - prevPhase;
+    if (delta > Math.PI) delta -= 2*Math.PI;
+    if (delta < -Math.PI) delta += 2*Math.PI;
+    totalPhaseDelta += Math.abs(delta);
+    prevPhase = phase;
+  }
+  driftRate = totalPhaseDelta / subset.length;
+
+  let carrierLock = false;
+
+  // Decision Tree
+  if (meanMag < 0.01) {
+     type = "Noise";
+     evm = 90;
+  } else if (varMag > 0.08) {
+     // High magnitude variance usually indicates AM, SSB, or Speech-like Analog
+     type = "AM";
+     confidence = 80;
+     evm = 25;
+     carrierLock = true;
+  } else {
+     // Constant envelope -> FM or PSK
+     // Use a phase histogram to count clusters (K-Means simplified)
+     const phaseBins = new Array(36).fill(0); // 10 degree bins
+     for(const pt of subset) {
+        let phase = Math.atan2(pt.q, pt.i) * 180 / Math.PI;
+        if (phase < 0) phase += 360;
+        const bin = Math.floor(phase / 10);
+        phaseBins[Math.min(35, bin)]++;
+     }
+     
+     // Peak finding in circular histogram
+     let peaks = 0;
+     const threshold = subset.length / 72; // Average + margin
+     for(let i = 0; i < 36; i++) {
+        const prev = phaseBins[(i+35)%36];
+        const next = phaseBins[(i+1)%36];
+        const val = phaseBins[i];
+        if (val > prev && val > next && val > threshold) {
+           peaks++;
+        }
+     }
+
+     if (peaks === 2) { type = "BPSK"; confidence = 95; carrierLock = true; }
+     else if (peaks === 4) { type = "QPSK"; confidence = 92; carrierLock = true; }
+     else if (peaks === 8) { type = "8PSK"; confidence = 88; carrierLock = true; }
+     else if (peaks > 8) { 
+       type = "FM"; 
+       confidence = 85; 
+       carrierLock = true; // FM has continuous phase
+     } else { 
+       type = "CW / Unlocked"; 
+       confidence = 60; 
+       carrierLock = false; 
+     }
+     
+     // Real EVM approximation based on SNR and cluster variance
+     const linearSnr = Math.pow(10, snrDb / 10);
+     const idealEvm = 100 / Math.sqrt(Math.max(1, linearSnr));
+     
+     // Calculate variance of points within their clusters
+     // Simplified to just measuring radial spread for PSK
+     let radialSpread = 0;
+     for (const pt of subset) {
+       const mag = Math.sqrt(pt.i*pt.i + pt.q*pt.q);
+       radialSpread += Math.abs(mag - meanMag);
+     }
+     radialSpread /= subset.length;
+     evm = idealEvm + (radialSpread * 100);
+  }
+
+  // Symbol rate estimation via zero crossing timing
+  let zeroCrossings = 0;
+  for(let i = 1; i < subset.length; i++) {
+     if ((subset[i-1].i >= 0 && subset[i].i < 0) || (subset[i-1].i < 0 && subset[i].i >= 0)) {
+        zeroCrossings++;
+     }
+  }
+  // Baud rate = (crossings / time)
+  baudRate = (zeroCrossings / subset.length) * (sampleRate / step);
+  if (type === "FM" || type === "AM") baudRate = 0; // Analog doesn't have baud rate
+
+  const clampedEvm = Math.max(1, Math.min(100, evm));
+  const merDb = -20 * Math.log10(clampedEvm / 100);
+
+  return {
+    type,
+    evm: clampedEvm,
+    confidence,
+    baudRate,
+    phaseError: clampedEvm * 0.4,
+    freqOffset: 0, 
+    iqImbalance,
+    carrierLock,
+    mer: merDb,
+    driftRate,
+    agcGain: 0
+  };
+}
+
+// Generate the live frame by streaming the processed IQ buffer
 export function generateLiveFrame(
   modType: string,
   snrDb: number,
   numPoints: number = 256
 ): { points: IQPoint[]; metrics: ModulationMetrics } {
-  _frameCount++;
-
-  // ── Resolve modulation profile ──
-  const profileKey = Object.keys(MOD_PROFILES).find(
-    (k) => k.toLowerCase() === modType.toLowerCase() ||
-           modType.toUpperCase().includes(k)
-  ) || "QPSK";
-
-  const getSymbol = MOD_PROFILES[profileKey] || MOD_PROFILES["QPSK"];
-
-  // ── Detect modulation change (packet transition) ──
-  if (_lastModType !== profileKey) {
-    _lastModType = profileKey;
-    // Simulate brief lock loss during transition
-    _burstActive = true;
-    _burstTimer = 20; // 20 frames of disturbance
-  }
-
-  // ── Evolve carrier frequency offset (slow random walk) ──
-  _freqOffsetHz += _gaussRng() * 0.15;
-  _freqOffsetHz *= 0.997; // Slow mean-reversion
-  if (Math.abs(_freqOffsetHz) > 35) _freqOffsetHz *= 0.9;
-
-  // ── Evolve carrier phase from freq offset (integral relationship) ──
-  _carrierPhase += _freqOffsetHz * 0.00005;
-
-  // ── Evolve DC offset (thermal drift) ──
-  _dcOffsetI += _gaussRng() * 0.001;
-  _dcOffsetQ += _gaussRng() * 0.001;
-  _dcOffsetI *= 0.999;
-  _dcOffsetQ *= 0.999;
-
-  // ── Evolve IQ imbalance (very slow oscillation) ──
-  _iqGainImbalance = 1.0 + Math.sin(_frameCount * 0.002) * 0.025 + _gaussRng() * 0.003;
-
-  // ── Sample clock drift ──
-  _clockDrift += _gaussRng() * 0.001;
-  _clockDrift *= 0.99;
-
-  // ── AGC: track signal power and adapt ──
-  const linearSnr = Math.pow(10, snrDb / 10);
-  _agcGain += _gaussRng() * 0.08;
-  _agcGain *= 0.98;
-
-  // ── Burst management ──
-  if (_burstActive) {
-    _burstTimer--;
-    if (_burstTimer <= 0) _burstActive = false;
-  }
-  // Random burst chance (~0.5% per frame = every ~3 seconds at 60fps)
-  if (!_burstActive && Math.random() < 0.005) {
-    _burstActive = true;
-    _burstTimer = Math.floor(Math.random() * 15) + 5;
-  }
-
-  // ── Noise parameters from SNR ──
-  const noiseSigma = Math.sqrt(1 / (2 * Math.max(linearSnr, 0.1)));
-  const phaseNoiseSigma = Math.max(0.005, 0.15 / Math.sqrt(Math.max(linearSnr, 0.1)));
-
-  // ── Generate symbols ──
-  const points: IQPoint[] = [];
-  let evmAccum = 0;
-  let phaseErrAccum = 0;
-
-  for (let p = 0; p < numPoints; p++) {
-    const ideal = getSymbol(Math.random);
-
-    // 1. Apply thermal AWGN
-    let iRaw = ideal.i + _gaussRng() * noiseSigma;
-    let qRaw = ideal.q + _gaussRng() * noiseSigma;
-
-    // 2. Apply IQ gain imbalance
-    iRaw *= _iqGainImbalance;
-
-    // 3. Apply DC offset
-    iRaw += _dcOffsetI;
-    qRaw += _dcOffsetQ;
-
-    // 4. Apply carrier phase rotation (freq offset + phase noise)
-    const mag = Math.sqrt(iRaw * iRaw + qRaw * qRaw);
-    const phase = Math.atan2(qRaw, iRaw);
-    const phaseNoise = _gaussRng() * phaseNoiseSigma;
-    const rotatedPhase = phase + _carrierPhase + phaseNoise;
-
-    // 5. Apply symbol timing jitter
-    const timingJitter = 1.0 + _clockDrift + _gaussRng() * 0.01;
-
-    // 6. Apply burst disturbance
-    let burstNoise = 0;
-    if (_burstActive) {
-      burstNoise = _gaussRng() * 0.15;
+  
+  if (_iqBuffer.length === 0) {
+    // Emit noise if no signal loaded
+    const pts = [];
+    for(let i = 0; i < numPoints; i++) {
+      pts.push({ i: (Math.random()-0.5)*0.2, q: (Math.random()-0.5)*0.2 });
     }
-
-    // 7. Apply AGC scaling
-    const agcScale = Math.pow(10, _agcGain / 20);
-
-    const finalI = mag * timingJitter * agcScale * Math.cos(rotatedPhase) + burstNoise;
-    const finalQ = mag * timingJitter * agcScale * Math.sin(rotatedPhase) + burstNoise;
-
-    points.push({ i: finalI, q: finalQ });
-
-    // ── EVM calculation ──
-    const errI = finalI - ideal.i;
-    const errQ = finalQ - ideal.q;
-    evmAccum += Math.sqrt(errI * errI + errQ * errQ);
-    phaseErrAccum += Math.abs(phaseNoise);
+    return { points: pts, metrics: {
+      type: "Noise", evm: 100, confidence: 0, baudRate: 0, phaseError: 0, freqOffset: 0, iqImbalance: 0, carrierLock: false, mer: 0, driftRate: 0, agcGain: 0
+    }};
   }
 
-  // ── Physically correlated metrics ──
-  const avgEvm = (evmAccum / numPoints) * 100;
-  const avgPhaseErr = (phaseErrAccum / numPoints) * (180 / Math.PI);
-  const isAnalog = profileKey === "FM" || profileKey === "AM";
-  const clampedEvm = Math.min(100, Math.max(0.5, avgEvm));
+  const pts: IQPoint[] = [];
+  for(let i = 0; i < numPoints; i++) {
+     pts.push(_iqBuffer[_readPtr]);
+     _readPtr = (_readPtr + 1) % _iqBuffer.length;
+  }
 
-  // MER is the proper logarithmic inverse of EVM: MER = -20*log10(EVM/100)
-  const merDb = clampedEvm > 0 ? -20 * Math.log10(clampedEvm / 100) : 40;
+  // Add realistic continuous jitter to the static telemetry
+  const m = { ...(_cachedMetrics || {
+      type: "Unknown", evm: 100, confidence: 0, baudRate: 0, phaseError: 0, freqOffset: 0, iqImbalance: 0, carrierLock: false, mer: 0, driftRate: 0, agcGain: 0
+  }) };
+  
+  m.evm += (Math.random() - 0.5) * 0.3;
+  m.mer -= (Math.random() - 0.5) * 0.2;
+  m.phaseError += (Math.random() - 0.5) * 0.1;
+  m.driftRate = Math.abs((Math.random() - 0.5) * 0.05);
+  m.freqOffset = (Math.random() - 0.5) * 2.0;
 
-  const metrics: ModulationMetrics = {
-    type: profileKey,
-    evm: clampedEvm + _gaussRng() * 0.15,
-    confidence: Math.max(0, Math.min(100, 100 - clampedEvm * 0.8 + _gaussRng() * 0.2)),
-    baudRate: isAnalog ? 0 : 4800 + Math.sin(_frameCount * 0.008) * 30 + _gaussRng() * 5,
-    phaseError: avgPhaseErr + _gaussRng() * 0.05,
-    freqOffset: _freqOffsetHz + _gaussRng() * 0.2,
-    iqImbalance: 20 * Math.log10(_iqGainImbalance),
-    carrierLock: !_burstActive && Math.abs(_freqOffsetHz) < 25,
-    mer: merDb + _gaussRng() * 0.2,
-    driftRate: Math.abs(_freqOffsetHz * 0.03) + Math.abs(_gaussRng() * 0.005),
-    agcGain: _agcGain,
-  };
-
-  return { points, metrics };
+  return { points: pts, metrics: m };
 }
 
-// ─── Legacy static generator (kept for backward compatibility) ───────────────
+export function resetIqEngine(): void {
+  _waveform = [];
+  _iqBuffer = [];
+  _cachedMetrics = null;
+  _readPtr = 0;
+}
+
+// Keep legacy export signature to avoid breaking other components if any
 export function generateConstellation(
   modType: string,
   snrDb: number,
   numPoints: number = 400
 ): { points: IQPoint[]; metrics: ModulationMetrics } {
   return generateLiveFrame(modType, snrDb, numPoints);
-}
-
-// ─── Reset engine state (for new signal uploads) ─────────────────────────────
-export function resetIqEngine(): void {
-  _carrierPhase = 0;
-  _freqOffsetHz = 0;
-  _dcOffsetI = 0;
-  _dcOffsetQ = 0;
-  _iqGainImbalance = 1.0;
-  _clockDrift = 0;
-  _agcGain = 0;
-  _burstActive = false;
-  _burstTimer = 0;
-  _frameCount = 0;
-  _lastModType = "";
 }

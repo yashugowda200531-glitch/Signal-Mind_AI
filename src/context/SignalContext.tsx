@@ -2,7 +2,8 @@
 
 import React, { createContext, useContext, useState, ReactNode } from "react";
 import axios from "axios";
-import { generateLiveFrame, resetIqEngine, type IQPoint, type ModulationMetrics } from "@/lib/iqEngine";
+import { generateLiveFrame, resetIqEngine, initDsp, type IQPoint, type ModulationMetrics } from "@/lib/iqEngine";
+import { analyzeSignal } from "@/lib/dsp";
 
 export interface HistoryItem {
   file: string;
@@ -97,74 +98,64 @@ export function SignalProvider({ children }: { children: ReactNode }) {
         (v: any) => typeof v === "number" && !isNaN(v) && isFinite(v)
       );
 
-      // ── Metrics from Backend ──
+      // ── Metrics from Backend (Only use for things we can't compute on frontend) ──
       const duration = backendData.duration || (rawWave.length / sr);
-      const powerDb = backendData.signalPower || -100;
-      const snr = backendData.snr || 0;
-      const domFreq = backendData.dominantFreq || 0;
-      const maxMag = backendData.dominantMagnitude || 0;
-      const bandwidth = backendData.bandwidth || 0;
-      const spectralFlatness = backendData.spectralFlatness || 0;
       const peakCount = backendData.peakCount || 0;
       const peaks: PeakInfo[] = backendData.peaks || [];
-      const modulation = backendData.modulationType || "Unknown";
       const signalType = backendData.signalType || "Unclassified";
-      const confidence = backendData.confidence || 0;
       const voiceConfidence = backendData.voiceConfidence || 0;
-      const spectralCentroid = backendData.spectralCentroid || 0;
       const fundamentalFreq = backendData.fundamentalFreq || 0;
-      const rmsPower = backendData.rmsPower || -100;
-      const spectralEntropy = backendData.spectralEntropy || 0;
-      const zeroCrossingRate = backendData.zeroCrossingRate || 0;
-      const spectralRolloff = backendData.spectralRolloff || 0;
-      const crestFactor = backendData.crestFactor || 0;
-      const noiseFloor = backendData.noiseFloor || -100;
       const spectrogram = backendData.spectrogram || [];
 
-      // ── Signal Quality: from Backend ──
-      const quality = backendData.signalQuality || 0;
+      // ── Real Frontend DSP Analysis ──
+      const f32Wave = new Float32Array(rawWave);
+      const realFftMetrics = analyzeSignal(f32Wave, sr);
+      
+      const domFreq = realFftMetrics.peakFrequency;
+      const snr = realFftMetrics.snrDb;
+      const powerDb = realFftMetrics.signalPowerDb;
+      const maxMag = realFftMetrics.peakMagnitude;
 
-      // ── Data Rate estimate: Shannon-Hartley C = BW * log2(1 + SNR_linear) ──
-      const snrLinear = Math.pow(10, snr / 10);
-      const dataRate = bandwidth > 0 ? bandwidth * Math.log2(1 + snrLinear) : 0; // kbps approx
+      initDsp(rawWave, sr, domFreq, snr);
+      const iqFrame = generateLiveFrame("Unknown", snr);
 
-        // Reset IQ engine state for fresh signal
-        resetIqEngine();
-        const iqFrame = generateLiveFrame(modulation, snr);
+      // Derived quality out of 100 based on EVM
+      let quality = 100 - (iqFrame.metrics.evm * 0.8);
+      quality = Math.max(0, Math.min(100, quality));
 
-        const newAnalysis: SignalData = {
-          fileName: file.name,
-          waveform: rawWave,
-          fft: rawFft,
-          sampleRate: sr,
-          duration,
-          dominantFreq: +domFreq.toFixed(2),
-          dominantMag: +maxMag.toFixed(1),
-          power: +powerDb.toFixed(1),
-          snr: +snr.toFixed(1),
-          bandwidth: +bandwidth.toFixed(2),
-          quality: +quality.toFixed(1),
-          modulation,
-          confidence: +confidence.toFixed(1),
-          signalType,
-          spectralFlatness: +spectralFlatness.toFixed(4),
-          dataRate: +dataRate.toFixed(1),
-          peakCount,
-          voiceConfidence: +voiceConfidence.toFixed(1),
-          rawFft: rawFft,
-          peaks,
-          spectralCentroid: +spectralCentroid.toFixed(2),
-          fundamentalFreq: +fundamentalFreq.toFixed(2),
-          rmsPower: +rmsPower.toFixed(1),
-          spectralEntropy: +spectralEntropy.toFixed(4),
-          zeroCrossingRate: +zeroCrossingRate.toFixed(4),
-          spectralRolloff: +spectralRolloff.toFixed(2),
-          crestFactor: +crestFactor.toFixed(2),
-          noiseFloor: +noiseFloor.toFixed(1),
-          spectrogram,
-          iqConstellation: iqFrame.points,
-          modMetrics: iqFrame.metrics,
-        };
+      const newAnalysis: SignalData = {
+        fileName: file.name,
+        waveform: rawWave,
+        fft: rawFft,
+        sampleRate: sr,
+        duration,
+        dominantFreq: +domFreq.toFixed(2),
+        dominantMag: +maxMag.toFixed(1),
+        power: +powerDb.toFixed(1),
+        snr: +snr.toFixed(1),
+        bandwidth: +realFftMetrics.occupiedBandwidth.toFixed(2),
+        quality: +quality.toFixed(1),
+        modulation: iqFrame.metrics.type,
+        confidence: +iqFrame.metrics.confidence.toFixed(1),
+        signalType,
+        spectralFlatness: +realFftMetrics.spectralFlatness.toFixed(4),
+        dataRate: +iqFrame.metrics.baudRate.toFixed(1),
+        peakCount,
+        voiceConfidence: +voiceConfidence.toFixed(1),
+        rawFft: rawFft,
+        peaks,
+        spectralCentroid: +realFftMetrics.spectralCentroid.toFixed(2),
+        fundamentalFreq: +fundamentalFreq.toFixed(2),
+        rmsPower: +realFftMetrics.rms.toFixed(1),
+        spectralEntropy: +realFftMetrics.spectralEntropy.toFixed(4),
+        zeroCrossingRate: +realFftMetrics.zcr.toFixed(4),
+        spectralRolloff: +realFftMetrics.spectralRolloff.toFixed(2),
+        crestFactor: +realFftMetrics.crestFactor.toFixed(2),
+        noiseFloor: +realFftMetrics.noiseFloor.toFixed(1),
+        spectrogram,
+        iqConstellation: iqFrame.points,
+        modMetrics: iqFrame.metrics,
+      };
 
       setData(newAnalysis);
 
@@ -173,7 +164,7 @@ export function SignalProvider({ children }: { children: ReactNode }) {
       setHistory((prev) => [
         {
           file: file.name,
-          type: modulation,
+          type: iqFrame.metrics.type,
           dur: `${duration.toFixed(2)} s`,
           time:
             now.toLocaleDateString() +
