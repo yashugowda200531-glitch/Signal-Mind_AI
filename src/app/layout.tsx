@@ -29,15 +29,19 @@ export const metadata: Metadata = {
     "AI-powered RF signal analysis platform with real-time FFT, spectrogram, constellation diagrams, and modulation detection.",
 };
 
+import { ForensicProvider } from "@/context/ForensicContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body className={`${inter.variable} ${orbitron.variable} ${rajdhani.variable} antialiased`}>
-        <SignalProvider>
-          {children}
-        </SignalProvider>
+        <ForensicProvider>
+          <SignalProvider>
+            {children}
+          </SignalProvider>
+        </ForensicProvider>
       </body>
     </html>
   );

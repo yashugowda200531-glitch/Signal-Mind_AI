@@ -1,9 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from "react";
 import axios from "axios";
-import { generateLiveFrame, resetIqEngine, initDsp, type IQPoint, type ModulationMetrics } from "@/lib/iqEngine";
+import { generateLiveFrame, resetIqEngine, initDsp, isolateAndClassifyCarrier, type IQPoint, type ModulationMetrics } from "@/lib/iqEngine";
 import { analyzeSignal } from "@/lib/dsp";
+import { generateSignalIntelligence, type AIAnalysisResult, type ThreatAssessment } from "@/lib/aiClassifier";
+import { useForensic } from "./ForensicContext";
+
+import { sdrClient } from "@/lib/sdrClient";
 
 export interface HistoryItem {
   file: string;
@@ -20,6 +24,12 @@ export interface PeakInfo {
   mag: number;
   prominence: number;
   type: string;
+}
+
+export interface TrackedCarrier {
+  info: any; // CarrierInfo
+  mod: ModulationMetrics;
+  ai: AIAnalysisResult;
 }
 
 export interface SignalData {
@@ -54,18 +64,23 @@ export interface SignalData {
   spectrogram: number[][];
   iqConstellation: IQPoint[];
   modMetrics: ModulationMetrics;
+  aiAnalysis?: AIAnalysisResult;
+  trackedCarriers?: TrackedCarrier[];
+  globalThreat?: ThreatAssessment;
 }
 
-interface SignalContextProps {
+interface SignalContextType {
   isProcessing: boolean;
   error: string | null;
   data: SignalData | null;
   history: HistoryItem[];
   uploadSignal: (file: File) => Promise<void>;
   resetError: () => void;
+  isLiveSdr: boolean;
+  toggleLiveSDR: () => void;
 }
 
-const SignalContext = createContext<SignalContextProps | undefined>(undefined);
+const SignalContext = createContext<SignalContextType | undefined>(undefined);
 
 export function SignalProvider({ children }: { children: ReactNode }) {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -119,9 +134,40 @@ export function SignalProvider({ children }: { children: ReactNode }) {
       initDsp(rawWave, sr, domFreq, snr);
       const iqFrame = generateLiveFrame("Unknown", snr);
 
+      // AI Signal Intelligence
+      const aiResult = generateSignalIntelligence(realFftMetrics, iqFrame.metrics, duration * 1000);
+
       // Derived quality out of 100 based on EVM
-      let quality = 100 - (iqFrame.metrics.evm * 0.8);
-      quality = Math.max(0, Math.min(100, quality));
+      let quality = aiResult.signalPurity;
+
+      // ── Independent Multi-Carrier Processing ──
+      const trackedCarriers: TrackedCarrier[] = [];
+      if (realFftMetrics.carriers) {
+        for (const carrier of realFftMetrics.carriers) {
+          const mod = isolateAndClassifyCarrier(rawWave, sr, carrier.freq, carrier.bandwidth, carrier.snr);
+          // Recreate FFT metrics stub for AI analysis of this specific carrier
+          const carrierFftInfo: any = {
+             snrDb: carrier.snr,
+             occupiedBandwidth: carrier.bandwidth,
+             spectralEntropy: 0.5, // placeholder since it's already filtered
+             spectralFlatness: 0.5,
+             crestFactor: 2.0,
+             peakFrequency: carrier.freq
+          };
+          const ai = generateSignalIntelligence(carrierFftInfo, mod, duration * 1000);
+          trackedCarriers.push({ info: carrier, mod, ai });
+        }
+      }
+
+      // ── Global Threat Evaluation ──
+      let globalThreat = aiResult.threatAssessment;
+      const severityScores: Record<string, number> = { "SAFE": 0, "LOW": 1, "ELEVATED": 2, "HIGH": 3, "CRITICAL": 4 };
+      
+      for (const track of trackedCarriers) {
+         if (severityScores[track.ai.threatAssessment.severity] > severityScores[globalThreat.severity]) {
+            globalThreat = track.ai.threatAssessment;
+         }
+      }
 
       const newAnalysis: SignalData = {
         fileName: file.name,
@@ -135,9 +181,9 @@ export function SignalProvider({ children }: { children: ReactNode }) {
         snr: +snr.toFixed(1),
         bandwidth: +realFftMetrics.occupiedBandwidth.toFixed(2),
         quality: +quality.toFixed(1),
-        modulation: iqFrame.metrics.type,
-        confidence: +iqFrame.metrics.confidence.toFixed(1),
-        signalType,
+        modulation: aiResult.modulationType,
+        confidence: +aiResult.confidenceScore.toFixed(1),
+        signalType: aiResult.signalCategory,
         spectralFlatness: +realFftMetrics.spectralFlatness.toFixed(4),
         dataRate: +iqFrame.metrics.baudRate.toFixed(1),
         peakCount,
@@ -155,6 +201,9 @@ export function SignalProvider({ children }: { children: ReactNode }) {
         spectrogram,
         iqConstellation: iqFrame.points,
         modMetrics: iqFrame.metrics,
+        aiAnalysis: aiResult,
+        trackedCarriers,
+        globalThreat,
       };
 
       setData(newAnalysis);
@@ -192,9 +241,97 @@ export function SignalProvider({ children }: { children: ReactNode }) {
 
   const resetError = () => setError(null);
 
+  // Auto-load forensic data
+  const forensic = useForensic();
+  useEffect(() => {
+     if (data) {
+        forensic.actions.loadRecording(data);
+     }
+  }, [data]);
+
+  // ── Live SDR Integration ──
+  const [isLiveSdr, setIsLiveSdr] = useState(false);
+  const lastProcessRef = useRef<number>(0);
+  
+  useEffect(() => {
+    if (isLiveSdr) {
+      sdrClient.connect();
+      sdrClient.setStatusCallback((connected) => {
+        if (!connected) setIsLiveSdr(false);
+      });
+      sdrClient.setCallback((iqData) => {
+         const now = performance.now();
+         if (now - lastProcessRef.current < 200) return; // Limit to 5 FPS to save CPU
+         lastProcessRef.current = now;
+
+         try {
+             // In a real app we'd convert IQ to real waveform for analyzeSignal if needed, 
+             // or run a specialized complex-FFT. Here we just take the real part (I) for our existing DSP pipeline.
+             const realFftMetrics = analyzeSignal(iqData, 2.4e6); 
+             
+             // Quick mock to reuse existing format
+             const domFreq = realFftMetrics.peakFrequency;
+             const snr = realFftMetrics.snrDb;
+             const powerDb = realFftMetrics.signalPowerDb;
+             
+             initDsp(Array.from(iqData).slice(0, 4096), 2.4e6, domFreq, snr);
+             const iqFrame = generateLiveFrame("Unknown", snr);
+             const aiResult = generateSignalIntelligence(realFftMetrics, iqFrame.metrics, 100);
+             
+             setData(prev => ({
+                 fileName: "LIVE SDR STREAM",
+                 waveform: Array.from(iqData).slice(0, 4096),
+                 fft: [],
+                 sampleRate: 2.4e6,
+                 duration: 1,
+                 dominantFreq: +domFreq.toFixed(2),
+                 dominantMag: +realFftMetrics.peakMagnitude.toFixed(1),
+                 power: +powerDb.toFixed(1),
+                 snr: +snr.toFixed(1),
+                 bandwidth: +realFftMetrics.occupiedBandwidth.toFixed(2),
+                 quality: +aiResult.signalPurity.toFixed(1),
+                 modulation: aiResult.modulationType,
+                 confidence: +aiResult.confidenceScore.toFixed(1),
+                 signalType: aiResult.signalCategory,
+                 spectralFlatness: +realFftMetrics.spectralFlatness.toFixed(4),
+                 dataRate: +iqFrame.metrics.baudRate.toFixed(1),
+                 peakCount: 1,
+                 voiceConfidence: 0,
+                 rawFft: [],
+                 peaks: [],
+                 spectralCentroid: +realFftMetrics.spectralCentroid.toFixed(2),
+                 fundamentalFreq: 0,
+                 rmsPower: +realFftMetrics.rms.toFixed(1),
+                 spectralEntropy: +realFftMetrics.spectralEntropy.toFixed(4),
+                 zeroCrossingRate: +realFftMetrics.zcr.toFixed(4),
+                 spectralRolloff: +realFftMetrics.spectralRolloff.toFixed(2),
+                 crestFactor: +realFftMetrics.crestFactor.toFixed(2),
+                 noiseFloor: +realFftMetrics.noiseFloor.toFixed(1),
+                 spectrogram: prev ? [...prev.spectrogram.slice(-50), realFftMetrics.magnitudes] : [realFftMetrics.magnitudes], // rolling history
+                 iqConstellation: iqFrame.points,
+                 modMetrics: iqFrame.metrics,
+                 aiAnalysis: aiResult,
+                 trackedCarriers: [],
+                 globalThreat: aiResult.threatAssessment,
+             }));
+         } catch (e) {
+            console.error(e);
+         }
+      });
+      sdrClient.startStreaming();
+    } else {
+      sdrClient.disconnect();
+    }
+    return () => {
+      sdrClient.disconnect();
+    };
+  }, [isLiveSdr]);
+
+  const toggleLiveSDR = () => setIsLiveSdr(!isLiveSdr);
+
   return (
     <SignalContext.Provider
-      value={{ isProcessing, error, data, history, uploadSignal, resetError }}
+      value={{ isProcessing, error, data, history, uploadSignal, resetError, isLiveSdr, toggleLiveSDR }}
     >
       {children}
     </SignalContext.Provider>

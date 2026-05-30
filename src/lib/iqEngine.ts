@@ -114,8 +114,60 @@ export function initDsp(wave: number[], sampleRate: number, fc: number, snrDb: n
   _cachedMetrics.agcGain = 20 * Math.log10(agcScale);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Independent Carrier DDC (Digital Downconversion) for Multi-Carrier Tracking
+// ─────────────────────────────────────────────────────────────────────────────
+export function isolateAndClassifyCarrier(wave: number[], sampleRate: number, fc: number, bw: number, snrDb: number): ModulationMetrics {
+  const len = wave.length;
+  if (len === 0) return classifyConstellation([], sampleRate, snrDb);
+
+  const w_c = 2 * Math.PI * fc / sampleRate;
+  const iLpf = new Float32Array(len);
+  const qLpf = new Float32Array(len);
+
+  // DDC and LPF
+  let windowSize = Math.max(2, Math.floor(sampleRate / (bw + 100)));
+  if (windowSize > 100) windowSize = 100;
+
+  let sumI = 0; let sumQ = 0;
+  for (let n = 0; n < len; n++) {
+    const iMix = wave[n] * Math.cos(w_c * n);
+    const qMix = wave[n] * -Math.sin(w_c * n);
+    
+    sumI += iMix; sumQ += qMix;
+    if (n >= windowSize) {
+      sumI -= (wave[n - windowSize] * Math.cos(w_c * (n - windowSize)));
+      sumQ -= (wave[n - windowSize] * -Math.sin(w_c * (n - windowSize)));
+      iLpf[n] = sumI / windowSize;
+      qLpf[n] = sumQ / windowSize;
+    } else {
+      iLpf[n] = sumI / (n + 1);
+      qLpf[n] = sumQ / (n + 1);
+    }
+  }
+
+  let sumMagSq = 0;
+  for(let n = 0; n < len; n++) {
+    sumMagSq += iLpf[n]*iLpf[n] + qLpf[n]*qLpf[n];
+  }
+  const rmsMag = Math.sqrt(sumMagSq / len) + 1e-6;
+  const agcScale = 1.0 / rmsMag;
+
+  const points: IQPoint[] = [];
+  for(let n = 0; n < len; n++) {
+    points.push({
+      i: iLpf[n] * agcScale,
+      q: qLpf[n] * agcScale
+    });
+  }
+
+  const metrics = classifyConstellation(points, sampleRate, snrDb);
+  metrics.agcGain = 20 * Math.log10(agcScale);
+  return metrics;
+}
+
 // True Constellation Classifier
-function classifyConstellation(points: IQPoint[], sampleRate: number, snrDb: number): ModulationMetrics {
+export function classifyConstellation(points: IQPoint[], sampleRate: number, snrDb: number): ModulationMetrics {
   // Subsample to save CPU on large files
   const maxSamples = 4000;
   const step = Math.max(1, Math.floor(points.length / maxSamples));
@@ -177,8 +229,25 @@ function classifyConstellation(points: IQPoint[], sampleRate: number, snrDb: num
      evm = 25;
      carrierLock = true;
   } else {
-     // Constant envelope -> FM or PSK
-     // Use a phase histogram to count clusters (K-Means simplified)
+     // Constant envelope -> FM or PSK, but let's check for multiple amplitude rings for QAM
+     // Use an amplitude histogram to count rings
+     const ampBins = new Array(20).fill(0);
+     const maxMag = meanMag * 2.5; // Expected max magnitude range
+     for(const pt of subset) {
+        const mag = Math.sqrt(pt.i*pt.i + pt.q*pt.q);
+        const bin = Math.floor((mag / maxMag) * 20);
+        ampBins[Math.min(19, bin)]++;
+     }
+     
+     let ampPeaks = 0;
+     const ampThreshold = subset.length / 40;
+     for(let i = 1; i < 19; i++) {
+        if (ampBins[i] > ampBins[i-1] && ampBins[i] > ampBins[i+1] && ampBins[i] > ampThreshold) {
+           ampPeaks++;
+        }
+     }
+
+     // Phase histogram to count clusters
      const phaseBins = new Array(36).fill(0); // 10 degree bins
      for(const pt of subset) {
         let phase = Math.atan2(pt.q, pt.i) * 180 / Math.PI;
@@ -199,7 +268,8 @@ function classifyConstellation(points: IQPoint[], sampleRate: number, snrDb: num
         }
      }
 
-     if (peaks === 2) { type = "BPSK"; confidence = 95; carrierLock = true; }
+     if (ampPeaks > 2 && peaks >= 12) { type = "16QAM / 64QAM"; confidence = 89; carrierLock = true; }
+     else if (peaks === 2) { type = "BPSK"; confidence = 95; carrierLock = true; }
      else if (peaks === 4) { type = "QPSK"; confidence = 92; carrierLock = true; }
      else if (peaks === 8) { type = "8PSK"; confidence = 88; carrierLock = true; }
      else if (peaks > 8) { 

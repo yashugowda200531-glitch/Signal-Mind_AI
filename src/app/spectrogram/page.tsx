@@ -113,7 +113,6 @@ export default function SpectrogramPage() {
                 persistence={persistence}
                 overlap={overlap}
                 fftSize={fftSize}
-                colormap={colormap}
                 onFpsUpdate={setFps}
                 onDriftUpdate={setDrift}
                 onOccupancyUpdate={setOccupancy}

@@ -1,6 +1,16 @@
 // @ts-ignore
 import { fft } from "fft-js";
 
+export interface CarrierInfo {
+  id: string;
+  freq: number;
+  peakMag: number;
+  snr: number;
+  bandwidth: number;
+  startIndex: number;
+  endIndex: number;
+}
+
 export interface FFTResult {
   frequencies: number[];
   magnitudes: number[];
@@ -22,6 +32,7 @@ export interface FFTResult {
 
   snrDb: number;
   signalPowerDb: number;
+  carriers: CarrierInfo[];
 }
 
 export function analyzeSignal(
@@ -61,19 +72,19 @@ export function analyzeSignal(
   // MAGNITUDE SPECTRUM
   // =========================================
 
-  const magnitudes = phasors.map(([re, im]) => {
+  const magnitudes = phasors.map(([re, im]: number[]) => {
     const mag = Math.sqrt(re * re + im * im);
     // dB conversion
     return 20 * Math.log10(mag + 1e-12);
   });
 
-  const linearSpectrum = phasors.map(([re, im]) => Math.sqrt(re * re + im * im));
+  const linearSpectrum = phasors.map(([re, im]: number[]) => Math.sqrt(re * re + im * im));
 
   // =========================================
   // FREQUENCY AXIS
   // =========================================
 
-  const frequencies = magnitudes.map((_, i) => {
+  const frequencies = magnitudes.map((_: number, i: number) => {
     return (i * sampleRate) / magnitudes.length;
   });
 
@@ -85,7 +96,7 @@ export function analyzeSignal(
   let peakFrequency = 0;
   let linearPeak = 0;
 
-  magnitudes.forEach((mag, i) => {
+  magnitudes.forEach((mag: number, i: number) => {
     if (mag > peakMagnitude) {
       peakMagnitude = mag;
       peakFrequency = frequencies[i];
@@ -99,7 +110,7 @@ export function analyzeSignal(
 
   const rms =
     Math.sqrt(
-      sliced.reduce((sum, x) => sum + x * x, 0) / sliced.length
+      sliced.reduce((sum: number, x: number) => sum + x * x, 0) / sliced.length
     );
 
   // =========================================
@@ -150,13 +161,13 @@ export function analyzeSignal(
   geoMean =
     Math.exp(
       linearSpectrum.reduce(
-        (sum, x) => sum + Math.log(x + epsilon),
+        (sum: number, x: number) => sum + Math.log(x + epsilon),
         0
       ) / linearSpectrum.length
     );
 
   arithMean =
-    linearSpectrum.reduce((a, b) => a + b, 0) /
+    linearSpectrum.reduce((a: number, b: number) => a + b, 0) /
     linearSpectrum.length;
 
   const spectralFlatness =
@@ -174,7 +185,7 @@ export function analyzeSignal(
   // A bin is "occupied" if it's 3dB above noise floor
   const threshold = noiseFloor + 3;
   let occupiedBins = 0;
-  magnitudes.forEach(mag => {
+  magnitudes.forEach((mag: number) => {
     if (mag > threshold) occupiedBins++;
   });
   const occupancy = occupiedBins / magnitudes.length;
@@ -213,6 +224,72 @@ export function analyzeSignal(
   const snrDb = peakMagnitude - noiseFloor;
 
   // =========================================
+  // MULTI-CARRIER PEAK DETECTION
+  // =========================================
+  const carriers: CarrierInfo[] = [];
+  const minPeakSnr = 10; // dB above noise floor
+  const minSpacingBins = Math.max(2, Math.floor((1000 / (sampleRate / 2)) * magnitudes.length)); // ~1 kHz spacing min
+  const maxCarriers = 5;
+
+  let localPeaks: { idx: number, mag: number }[] = [];
+  for (let i = 1; i < magnitudes.length - 1; i++) {
+    if (magnitudes[i] > magnitudes[i - 1] && magnitudes[i] > magnitudes[i + 1]) {
+      if (magnitudes[i] > noiseFloor + minPeakSnr) {
+        localPeaks.push({ idx: i, mag: magnitudes[i] });
+      }
+    }
+  }
+
+  // Sort peaks by magnitude (descending)
+  localPeaks.sort((a, b) => b.mag - a.mag);
+
+  // Filter peaks that are too close to stronger peaks
+  const validPeaks: typeof localPeaks = [];
+  for (const peak of localPeaks) {
+    let tooClose = false;
+    for (const vp of validPeaks) {
+      if (Math.abs(peak.idx - vp.idx) < minSpacingBins) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (!tooClose) {
+      validPeaks.push(peak);
+      if (validPeaks.length >= maxCarriers) break;
+    }
+  }
+
+  // For each valid peak, estimate bandwidth (walk down until 6dB drop or noise floor)
+  let trkIdCounter = 1;
+  for (const peak of validPeaks) {
+    const peakMag = peak.mag;
+    const threshold = Math.max(peakMag - 15, noiseFloor + 3);
+    
+    let startIdx = peak.idx;
+    while (startIdx > 0 && magnitudes[startIdx - 1] > threshold) {
+      startIdx--;
+    }
+    
+    let endIdx = peak.idx;
+    while (endIdx < magnitudes.length - 1 && magnitudes[endIdx + 1] > threshold) {
+      endIdx++;
+    }
+
+    const bwHz = frequencies[endIdx] - frequencies[startIdx];
+
+    carriers.push({
+      id: `TRK-${trkIdCounter.toString().padStart(2, '0')}`,
+      freq: frequencies[peak.idx],
+      peakMag,
+      snr: peakMag - noiseFloor,
+      bandwidth: bwHz,
+      startIndex: startIdx,
+      endIndex: endIdx
+    });
+    trkIdCounter++;
+  }
+
+  // =========================================
   // RETURN
   // =========================================
 
@@ -236,6 +313,7 @@ export function analyzeSignal(
     spectralRolloff,
 
     snrDb,
-    signalPowerDb
+    signalPowerDb,
+    carriers
   };
 }

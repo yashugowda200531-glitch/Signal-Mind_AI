@@ -176,42 +176,107 @@ export default function AnalysisPanel() {
         </div>
       </div>
 
-      {/* AI Analysis Results */}
+      {/* ── TACTICAL THREAT BANNER ── */}
+      {data?.globalThreat && (data.globalThreat.severity === "HIGH" || data.globalThreat.severity === "CRITICAL") && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-start gap-3"
+          style={{
+            background: "rgba(239, 68, 68, 0.15)",
+            border: "1px solid rgba(239, 68, 68, 0.5)",
+            borderRadius: 8,
+            padding: "12px 14px",
+            marginBottom: 16,
+            boxShadow: "0 0 20px rgba(239, 68, 68, 0.2)",
+          }}
+        >
+          <div style={{ marginTop: 2 }}>
+             <Activity style={{ width: 18, height: 18, color: "#ef4444" }} strokeWidth={2.5} />
+          </div>
+          <div>
+            <div style={{
+              fontFamily: "var(--font-rajdhani)",
+              fontSize: 14,
+              fontWeight: 700,
+              color: "#ef4444",
+              letterSpacing: "0.05em",
+              textShadow: "0 0 10px rgba(239, 68, 68, 0.5)",
+              textTransform: "uppercase"
+            }}>
+              THREAT LEVEL {data.globalThreat.severity}
+            </div>
+            <div style={{
+              fontFamily: "var(--font-rajdhani)",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#fca5a5",
+              marginTop: 2,
+              lineHeight: 1.4
+            }}>
+              <strong>TYPE:</strong> {data.globalThreat.type}<br/>
+              <strong>SOURCE:</strong> {data.globalThreat.sourceEstimate}
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── AI RF Assistant Panel ── */}
       <motion.div
         initial={{ opacity: 0, x: 14 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5, delay: 0.4 }}
-        style={{ ...CARD, flex: 1 }}
+        style={{ ...CARD, flex: 1, border: "1px solid rgba(168,85,247,0.3)" }}
       >
         {TOP}
-        <Title icon={Cpu} label="DSP Metrics" color="#a855f7" />
-        <div>
-          {DSP.map((r, i) => (
-            <motion.div
-              key={r.label}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 + i * 0.06 }}
-              className="flex justify-between items-center"
-              style={{
-                padding: "5px 0",
-                borderBottom: i < DSP.length - 1 ? "1px solid rgba(255,255,255,0.035)" : "none",
-              }}
-            >
-              <span style={{
-                fontFamily: "var(--font-rajdhani)",
-                fontSize: 10.5, fontWeight: 500, color: "#4a5f82",
-              }}>{r.label}</span>
-              <span style={{
-                fontFamily: "var(--font-rajdhani)",
-                fontSize: 10.5, fontWeight: 700, color: r.col,
-                padding: "1px 7px", borderRadius: 4,
-                background: `${r.col}0e`,
-                textShadow: `0 0 6px ${r.col}30`,
-              }}>{r.val}</span>
-            </motion.div>
-          ))}
-        </div>
+        <Title icon={Cpu} label="AI RF Intelligence" color="#a855f7" />
+        
+        {data?.aiAnalysis ? (
+          <div className="flex flex-col gap-3">
+            {/* AI Text Readout */}
+            <div style={{
+              background: "rgba(168,85,247,0.08)",
+              border: "1px solid rgba(168,85,247,0.2)",
+              borderRadius: 6,
+              padding: "10px",
+              fontFamily: "var(--font-rajdhani)",
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: "#e2e8f0",
+              textShadow: "0 0 8px rgba(168,85,247,0.2)"
+            }}>
+              <span style={{ color: "#c084fc", fontWeight: 700, marginRight: 4 }}>[SYS_LOG]</span>
+              {data.aiAnalysis.analysisText}
+            </div>
+
+            {/* Meters */}
+            <div className="flex flex-col gap-2">
+              <div>
+                <div className="flex justify-between" style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#94a3b8", marginBottom: 2 }}>
+                  <span>SIGNAL PURITY</span>
+                  <span style={{ color: "#22c55e", fontWeight: 600 }}>{data.aiAnalysis.signalPurity.toFixed(0)}%</span>
+                </div>
+                <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${data.aiAnalysis.signalPurity}%`, background: "#22c55e", boxShadow: "0 0 10px #22c55e" }} />
+                </div>
+              </div>
+              
+              <div>
+                <div className="flex justify-between" style={{ fontFamily: "var(--font-rajdhani)", fontSize: 10, color: "#94a3b8", marginBottom: 2 }}>
+                  <span>ANOMALY LEVEL</span>
+                  <span style={{ color: data.aiAnalysis.anomalyLevel > 50 ? "#ef4444" : "#f59e0b", fontWeight: 600 }}>{data.aiAnalysis.anomalyLevel.toFixed(0)}%</span>
+                </div>
+                <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${data.aiAnalysis.anomalyLevel}%`, background: data.aiAnalysis.anomalyLevel > 50 ? "#ef4444" : "#f59e0b", boxShadow: `0 0 10px ${data.aiAnalysis.anomalyLevel > 50 ? "#ef4444" : "#f59e0b"}` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontFamily: "var(--font-rajdhani)", fontSize: 11, color: "#64748b", textAlign: "center", padding: "20px 0" }}>
+            Awaiting signal data for AI analysis...
+          </div>
+        )}
 
         {/* CTA */}
         <motion.button

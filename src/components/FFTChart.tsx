@@ -3,26 +3,17 @@ import { ChevronDown } from "lucide-react";
 import { useSignal } from "@/context/SignalContext";
 import { getRfSpikes } from "@/lib/rfEngine";
 
+import { useForensic } from "@/context/ForensicContext";
+
 export default function FFTChart() {
   const { data } = useSignal();
+  const { state: forensicState } = useForensic();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Animation state
-  const [tIdx, setTIdx] = useState(0);
-
-  useEffect(() => {
-    if (!data?.spectrogram?.length) return;
-    let frameId: number;
-    
-    const loop = (time: number) => {
-       // Unthrottled 60 FPS for maximum microdynamics
-       setTIdx(prev => (prev + 1) % data.spectrogram.length);
-       frameId = requestAnimationFrame(loop);
-    };
-    
-    frameId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frameId);
-  }, [data?.spectrogram]);
+  // Animation state derived from forensic timeline
+  const tIdx = data?.spectrogram?.length && forensicState.durationMs > 0 
+      ? Math.floor((forensicState.currentTimeMs / forensicState.durationMs) * data.spectrogram.length) % data.spectrogram.length
+      : 0;
 
   // EMA Smoothing state
   const smoothedDataRef = useRef<number[]>([]);
@@ -294,6 +285,74 @@ export default function FFTChart() {
     ctx.globalCompositeOperation = "source-over";
 
     // ----------------------------------------------------
+    // 3.5 Draw Multi-Carrier Tracking Overlays
+    // ----------------------------------------------------
+    if (data?.trackedCarriers) {
+      for (const track of data.trackedCarriers) {
+        const info = track.info;
+        const startX = (info.startIndex / totalBins) * width;
+        const endX = (info.endIndex / totalBins) * width;
+        const centerX = ((info.startIndex + info.endIndex) / 2 / totalBins) * width;
+        const peakY = getDbY(info.peakMag);
+        
+        const isThreat = track.ai.threatAssessment.severity === "HIGH" || track.ai.threatAssessment.severity === "CRITICAL";
+        const colorPrimary = isThreat ? "#ef4444" : "#22c55e"; // Red for threat, Green for safe
+        const colorBg = isThreat ? "rgba(239, 68, 68, 0.15)" : "rgba(168, 85, 247, 0.08)";
+        const colorBorder = isThreat ? "rgba(239, 68, 68, 0.4)" : "rgba(168, 85, 247, 0.3)";
+
+        // A. Shaded Bandwidth Region
+        ctx.fillStyle = colorBg;
+        ctx.fillRect(startX, 0, endX - startX, height);
+        
+        // B. Vertical edges
+        ctx.strokeStyle = colorBorder;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(startX, 0); ctx.lineTo(startX, height);
+        ctx.moveTo(endX, 0); ctx.lineTo(endX, height);
+        ctx.stroke();
+
+        // C. Target Crosshair at Peak
+        ctx.strokeStyle = colorPrimary;
+        ctx.lineWidth = isThreat ? 2.0 : 1.5;
+        ctx.beginPath();
+        if (isThreat) {
+           // Diamond lock for threat
+           ctx.moveTo(centerX, peakY - 8); ctx.lineTo(centerX + 8, peakY);
+           ctx.lineTo(centerX, peakY + 8); ctx.lineTo(centerX - 8, peakY);
+           ctx.closePath();
+        } else {
+           // Normal crosshair
+           ctx.moveTo(centerX - 6, peakY); ctx.lineTo(centerX + 6, peakY);
+           ctx.moveTo(centerX, peakY - 6); ctx.lineTo(centerX, peakY + 6);
+        }
+        ctx.stroke();
+
+        // D. Intelligence Label
+        ctx.fillStyle = isThreat ? "rgba(239, 68, 68, 0.15)" : "rgba(4, 7, 20, 0.85)";
+        ctx.strokeStyle = isThreat ? "rgba(239, 68, 68, 0.8)" : "rgba(34, 197, 94, 0.5)";
+        
+        const labelText = `[${info.id}] ${isThreat ? "THREAT" : track.ai.modulationType} | ${info.snr.toFixed(1)}dB`;
+        const labelWidth = ctx.measureText(labelText).width + 12;
+        
+        let lx = centerX - labelWidth/2;
+        let ly = peakY - 24;
+        
+        // Bounds checking
+        if (lx < 4) lx = 4;
+        if (lx + labelWidth > width - 4) lx = width - labelWidth - 4;
+        if (ly < 10) ly = peakY + 14;
+
+        ctx.fillRect(lx, ly, labelWidth, 16);
+        ctx.strokeRect(lx, ly, labelWidth, 16);
+        
+        ctx.fillStyle = colorPrimary;
+        ctx.font = isThreat ? "bold 9px monospace" : "9px monospace";
+        ctx.fillText(labelText, lx + 6, ly + 11);
+      }
+    }
+
+    // ----------------------------------------------------
     // 4. Draw Live Frequency Cursor
     // ----------------------------------------------------
     if (mousePosRef.current) {
@@ -377,8 +436,22 @@ export default function FFTChart() {
         ctx.fillText(`BIN: [${binIdx}]`, ttX + 6, ttY + 48);
       }
     }
+
+    // ----------------------------------------------------
+    // 5. Global Threat Pulse Overlay
+    // ----------------------------------------------------
+    if (data?.globalThreat && (data.globalThreat.severity === "HIGH" || data.globalThreat.severity === "CRITICAL")) {
+       const pulseAlpha = (Math.sin(performance.now() * 0.005) + 1) / 2 * 0.15 + 0.05;
+       ctx.fillStyle = `rgba(239, 68, 68, ${pulseAlpha})`;
+       ctx.fillRect(0, 0, width, height);
+       
+       // Red border
+       ctx.strokeStyle = `rgba(239, 68, 68, ${pulseAlpha + 0.2})`;
+       ctx.lineWidth = 4;
+       ctx.strokeRect(0, 0, width, height);
+    }
     
-  }, [data?.spectrogram, tIdx]);
+  }, [data?.spectrogram, tIdx, data?.globalThreat, data?.trackedCarriers]);
 
   return (
     <div className="relative overflow-hidden" style={{

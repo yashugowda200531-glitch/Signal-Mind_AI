@@ -6,14 +6,18 @@ import Header from "@/components/Header";
 import MetricCard from "@/components/MetricCard";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import AnalysisHistory from "@/components/AnalysisHistory";
-import QuickActions from "@/components/QuickActions";
+import BandScanner from "@/components/BandScanner";
+import SdrControls from "@/components/SdrControls";
 import { Activity, BarChart3, Wifi, Radio, Zap, TrendingUp } from "lucide-react";
 import { useSignal } from "@/context/SignalContext";
 
 const SignalChart         = dynamic(() => import("@/components/SignalChart"),         { ssr: false });
+const PersistenceHeatmap  = dynamic(() => import("@/components/PersistenceHeatmap"),  { ssr: false });
 const FFTChart            = dynamic(() => import("@/components/FFTChart"),            { ssr: false });
 const Spectrogram         = dynamic(() => import("@/components/Spectrogram"),         { ssr: false });
 const ConstellationDiagram= dynamic(() => import("@/components/ConstellationDiagram"),{ ssr: false });
+
+import ForensicPlayer from "@/components/ForensicPlayer";
 
 export default function DashboardPage() {
   const { data } = useSignal();
@@ -59,7 +63,9 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen overflow-x-hidden" style={{ background: "#030512", color: "#dfe6f0" }}>
+    <div className="min-h-screen overflow-x-hidden pb-12" style={{ background: "#030512", color: "#dfe6f0" }}>
+
+      <ForensicPlayer />
 
       {/* ── Cinematic ambient depth lighting ── */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
@@ -106,19 +112,20 @@ export default function DashboardPage() {
             gap: 12,
             alignItems: "start",
           }}>
-            <div style={{ gridColumn: 1, gridRow: 1 }}><SignalChart /></div>
+            <div style={{ gridColumn: 1, gridRow: 1 }}><PersistenceHeatmap /></div>
             <div style={{ gridColumn: 2, gridRow: 1 }}><FFTChart /></div>
-            <div style={{ gridColumn: 3, gridRow: "1 / 4", display: "flex", flexDirection: "column" }}>
+            <div style={{ gridColumn: 3, gridRow: "1 / 4", display: "flex", flexDirection: "column", gap: 12 }}>
+              <SdrControls />
               <AnalysisPanel />
             </div>
             <div style={{ gridColumn: 1, gridRow: 2 }}><Spectrogram /></div>
             <div style={{ gridColumn: 2, gridRow: 2 }}><ConstellationDiagram /></div>
             <div style={{
               gridColumn: "1 / 3", gridRow: 3,
-              display: "grid", gridTemplateColumns: "1fr 210px", gap: 12,
+              display: "grid", gridTemplateColumns: "300px 1fr", gap: 12,
             }}>
               <AnalysisHistory />
-              <QuickActions />
+              <BandScanner />
             </div>
           </div>
 
